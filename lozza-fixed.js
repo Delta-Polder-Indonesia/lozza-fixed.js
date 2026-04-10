@@ -378,6 +378,142 @@ var BSQUARE = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 
 var NULL_PST = Array(144).fill(0);
 
+//{{{  evaluation defaults (fallback)
+var MATERIAL = [0, 100, 320, 330, 500, 900, 0];
+
+function createEmptyPST() {
+  return Array(144).fill(0);
+}
+
+function createPawnPST(mult) {
+  var arr = Array(144).fill(0);
+  for (var i = 0; i < B88.length; i++) {
+    var sq = B88[i];
+    arr[sq] = (RANK[sq] - 1) * mult;
+  }
+  return arr;
+}
+
+function createPawnPSTBlack(mult) {
+  var arr = Array(144).fill(0);
+  for (var i = 0; i < B88.length; i++) {
+    var sq = B88[i];
+    arr[sq] = (8 - RANK[sq]) * mult;
+  }
+  return arr;
+}
+
+function createOutpostWhite() {
+  var arr = Array(144).fill(0);
+  for (var i = 0; i < B88.length; i++) {
+    var sq = B88[i];
+    if (RANK[sq] >= 4 && RANK[sq] <= 6) arr[sq] = 12;
+  }
+  return arr;
+}
+
+function createOutpostBlack() {
+  var arr = Array(144).fill(0);
+  for (var i = 0; i < B88.length; i++) {
+    var sq = B88[i];
+    if (RANK[sq] <= 5 && RANK[sq] >= 3) arr[sq] = 12;
+  }
+  return arr;
+}
+
+var WPAWN_PSTS = createPawnPST(5);
+var WPAWN_PSTE = createPawnPST(10);
+var BPAWN_PSTS = createPawnPSTBlack(5);
+var BPAWN_PSTE = createPawnPSTBlack(10);
+
+var WKNIGHT_PSTS = createEmptyPST();
+var WKNIGHT_PSTE = createEmptyPST();
+var WBISHOP_PSTS = createEmptyPST();
+var WBISHOP_PSTE = createEmptyPST();
+var WROOK_PSTS   = createEmptyPST();
+var WROOK_PSTE   = createEmptyPST();
+var WQUEEN_PSTS  = createEmptyPST();
+var WQUEEN_PSTE  = createEmptyPST();
+var WKING_PSTS   = createEmptyPST();
+var WKING_PSTE   = createEmptyPST();
+
+var BKNIGHT_PSTS = createEmptyPST();
+var BKNIGHT_PSTE = createEmptyPST();
+var BBISHOP_PSTS = createEmptyPST();
+var BBISHOP_PSTE = createEmptyPST();
+var BROOK_PSTS   = createEmptyPST();
+var BROOK_PSTE   = createEmptyPST();
+var BQUEEN_PSTS  = createEmptyPST();
+var BQUEEN_PSTE  = createEmptyPST();
+var BKING_PSTS   = createEmptyPST();
+var BKING_PSTE   = createEmptyPST();
+
+var WOUTPOST = createOutpostWhite();
+var BOUTPOST = createOutpostBlack();
+
+var PAWN_CHAIN_S = 10;
+var PAWN_CHAIN_E = 5;
+var PAWN_DOUBLED_S = 12;
+var PAWN_DOUBLED_E = 8;
+var PAWN_ISOLATED_S = 14;
+var PAWN_ISOLATED_E = 10;
+var PAWN_BACKWARD_S = 8;
+var PAWN_BACKWARD_E = 6;
+var PAWN_PASSED_OFFSET_S = 10;
+var PAWN_PASSED_OFFSET_E = 20;
+var PAWN_PASSED_MULT_S = 6;
+var PAWN_PASSED_MULT_E = 12;
+var PAWN_OFFSET_S = 6;
+var PAWN_OFFSET_E = 12;
+var PAWN_MULT_S = 4;
+var PAWN_MULT_E = 8;
+var PAWN_PASS_KING1 = 2;
+var PAWN_PASS_KING2 = 2;
+var PAWN_PASS_FREE = 5;
+var PAWN_PASS_UNSTOP = 80;
+
+var KING_PENALTY = 20;
+
+var MOBN_S = 4,  MOBN_E = 4,  MOBN_S0 = -6, MOBN_E0 = -4;
+var MOBB_S = 4,  MOBB_E = 4,  MOBB_S0 = -6, MOBB_E0 = -4;
+var MOBR_S = 2,  MOBR_E = 2,  MOBR_S0 = -4, MOBR_E0 = -3;
+var MOBQ_S = 1,  MOBQ_E = 1,  MOBQ_S0 = -2, MOBQ_E0 = -2;
+
+var TIGHT_NS = 1, TIGHT_NE = 1;
+var TIGHT_BS = 1, TIGHT_BE = 1;
+var TIGHT_RS = 1, TIGHT_RE = 1;
+var TIGHT_QS = 1, TIGHT_QE = 1;
+
+var TENSE_NS = 1, TENSE_NE = 1;
+var TENSE_BS = 1, TENSE_BE = 1;
+var TENSE_RS = 1, TENSE_RE = 1;
+var TENSE_QS = 1, TENSE_QE = 1;
+
+var ATT_N = 10;
+var ATT_B = 10;
+var ATT_R = 20;
+var ATT_Q = 40;
+
+var TWOBISHOPS_S = 20;
+var TWOBISHOPS_E = 30;
+
+var ROOK7TH_S = 20;
+var ROOK7TH_E = 20;
+var ROOKOPEN_S = 10;
+var ROOKOPEN_E = 8;
+var ROOK_DOUBLED_S = 15;
+var ROOK_DOUBLED_E = 12;
+
+var QUEEN7TH_S = 12;
+var QUEEN7TH_E = 12;
+
+var TRAPPED_S = 40;
+var TRAPPED_E = 40;
+
+var TEMPO_S = 10;
+var TEMPO_E = 6;
+//}}}
+
 var MAP = [];
 
 MAP['p'] = B_PAWN;
@@ -822,489 +958,6 @@ var randoms = [
 -1397474205, -235013812, 1352305367, 262942436, 148119835, 644102139, -990212035, -1217173577, 206364802, 749235178
 ];
 
-//}}}
-
-//{{{  eval weights
-//
-// file = quiet-labeled.epd
-// num positions = 725000
-// num features = 921
-// k = 1.43
-// loss = 0.05491148388834764
-// epochs = 61
-// last update = Thu Jan 12 2023 21:09:35 GMT+0000 (Greenwich Mean Time)
-//
-
-const MATERIAL = [0,100,396,390,598,1198,10000];
-
-var PAWN_CHAIN_S         = 8;
-var PAWN_CHAIN_E         = 8;
-var PAWN_DOUBLED_S       = 11;
-var PAWN_DOUBLED_E       = 3;
-var PAWN_ISOLATED_S      = 13;
-var PAWN_ISOLATED_E      = 12;
-var PAWN_BACKWARD_S      = 12;
-var PAWN_BACKWARD_E      = 6;
-var PAWN_PASSED_OFFSET_S = 0;
-var PAWN_PASSED_OFFSET_E = 3;
-var PAWN_PASSED_MULT_S   = 8;
-var PAWN_PASSED_MULT_E   = 78;
-var PAWN_OFFSET_S        = -5;
-var PAWN_OFFSET_E        = 25;
-var PAWN_MULT_S          = 89;
-var PAWN_MULT_E          = 57;
-var PAWN_PASS_FREE       = 136;
-var PAWN_PASS_UNSTOP     = 810;
-var PAWN_PASS_KING1      = 44;
-var PAWN_PASS_KING2      = 27;
-var ATT_N                = 27;
-var ATT_B                = 9;
-var ATT_R                = 44;
-var ATT_Q                = 49;
-var TWOBISHOPS_S         = 35;
-var TWOBISHOPS_E         = 59;
-var ROOK7TH_S            = -28;
-var ROOK7TH_E            = 33;
-var ROOKOPEN_S           = 21;
-var ROOKOPEN_E           = -3;
-var ROOK_DOUBLED_S       = 27;
-var ROOK_DOUBLED_E       = -3;
-var QUEEN7TH_S           = -75;
-var QUEEN7TH_E           = 55;
-var TRAPPED_S            = 38;
-var TRAPPED_E            = 33;
-var KING_PENALTY         = 22;
-var TEMPO_S              = 29;
-var TEMPO_E              = 25;
-var TIGHT_NS             = 4;
-var TIGHT_NE             = -4;
-var TIGHT_BS             = 10;
-var TIGHT_BE             = 9;
-var TIGHT_RS             = 4;
-var TIGHT_RE             = 6;
-var TIGHT_QS             = -148;
-var TIGHT_QE             = -162;
-var TENSE_NS             = 53;
-var TENSE_NE             = 24;
-var TENSE_BS             = 36;
-var TENSE_BE             = 40;
-var TENSE_RS             = 103;
-var TENSE_RE             = -18;
-var TENSE_QS             = -4;
-var TENSE_QE             = 23;
-var MOBN_S               = 4;
-var MOBN_E               = -5;
-var MOBN_S0              = -9;
-var MOBN_E0              = -73;
-var MOBB_S               = 7;
-var MOBB_E               = 2;
-var MOBB_S0              = -10;
-var MOBB_E0              = -48;
-var MOBR_S               = 5;
-var MOBR_E               = 2;
-var MOBR_S0              = -2;
-var MOBR_E0              = -50;
-var MOBQ_S               = 3;
-var MOBQ_E               = 6;
-var MOBQ_S0              = 6;
-var MOBQ_E0              = 0;
-var XRAY_BS              = 5;
-var XRAY_BE              = 5;
-var XRAY_RS              = 5;
-var XRAY_RE              = 5;
-var XRAY_QS              = 5;
-var XRAY_QE              = 5;
-
-const WPAWN_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    4,   96,   14,   81,  120,  193,    8,  -58,    0,    0,
-     0,    0,  -54,  -55,  -37,  -44,    4,   28,   -3,  -59,    0,    0,
-     0,    0,  -73,  -47,  -62,  -37,  -40,  -43,  -41,  -81,    0,    0,
-     0,    0,  -87,  -85,  -59,  -49,  -52,  -44,  -71,  -91,    0,    0,
-     0,    0,  -84,  -88,  -69,  -67,  -67,  -44,  -43,  -71,    0,    0,
-     0,    0,  -89,  -72,  -88,  -74,  -87,  -37,  -32,  -81,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WPAWN_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    9,   10,   35,   17,   25,  -26,   38,   48,    0,    0,
-     0,    0,    6,    8,    4,   -6,  -16,  -16,    3,    8,    0,    0,
-     0,    0,   -5,  -18,  -22,  -37,  -31,  -26,  -16,  -10,    0,    0,
-     0,    0,  -10,  -14,  -30,  -35,  -30,  -33,  -24,  -20,    0,    0,
-     0,    0,  -24,  -23,  -29,  -25,  -20,  -28,  -36,  -31,    0,    0,
-     0,    0,  -15,  -25,   -8,  -17,   -1,  -20,  -32,  -31,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WKNIGHT_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0, -189, -136,  -81,  -84,   32, -130, -108,  -93,    0,    0,
-     0,    0, -108,  -69,   45,   -4,    9,   25,  -12,  -58,    0,    0,
-     0,    0,  -57,  -49,  -30,  -15,  -18,  104,  -14,   51,    0,    0,
-     0,    0,    0,   29,   10,   36,   39,   64,   32,   33,    0,    0,
-     0,    0,    5,   26,   25,   21,   40,   36,   36,    5,    0,    0,
-     0,    0,   -2,   11,   32,   46,   56,   45,   52,    7,    0,    0,
-     0,    0,   -9,  -27,   16,   29,   36,   40,   24,   13,    0,    0,
-     0,    0, -106,    3,  -26,   -8,   28,    6,    4,   -4,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WKNIGHT_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -69,  -51,  -12,  -33,  -42,  -41,  -68, -130,    0,    0,
-     0,    0,  -40,  -17,  -30,    7,  -15,  -29,  -42,  -75,    0,    0,
-     0,    0,  -39,  -17,   16,   18,   -4,  -15,  -28,  -68,    0,    0,
-     0,    0,  -34,   -7,   25,   21,   26,    3,  -17,  -42,    0,    0,
-     0,    0,  -37,  -23,   15,   22,   13,   13,   -5,  -39,    0,    0,
-     0,    0,  -53,  -13,   -6,    8,    8,  -12,  -35,  -45,    0,    0,
-     0,    0,  -69,  -40,  -25,  -21,  -22,  -34,  -46,  -76,    0,    0,
-     0,    0,  -57,  -77,  -49,  -41,  -53,  -48,  -80, -109,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WBISHOP_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -45,  -21, -168, -122,  -73,  -77,  -27,  -15,    0,    0,
-     0,    0,  -29,   -8,  -38,  -48,    1,   38,   19,  -68,    0,    0,
-     0,    0,  -20,   32,   28,   11,   19,   41,   31,    0,    0,    0,
-     0,    0,    6,    2,   14,   49,   21,   21,   -1,    9,    0,    0,
-     0,    0,    3,   21,   18,   34,   33,    8,   19,   12,    0,    0,
-     0,    0,   14,   33,   34,   25,   35,   50,   41,   27,    0,    0,
-     0,    0,   23,   36,   30,   26,   26,   43,   64,   22,    0,    0,
-     0,    0,  -13,   31,   25,   22,   28,   20,   -8,    5,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WBISHOP_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -34,  -37,  -10,  -13,  -11,  -21,  -36,  -47,    0,    0,
-     0,    0,  -25,  -23,  -13,  -22,  -21,  -31,  -25,  -31,    0,    0,
-     0,    0,  -18,  -28,  -26,  -26,  -26,  -27,  -24,  -20,    0,    0,
-     0,    0,  -28,  -15,  -17,  -19,  -12,  -21,  -22,  -24,    0,    0,
-     0,    0,  -31,  -29,  -16,  -13,  -25,  -17,  -33,  -33,    0,    0,
-     0,    0,  -37,  -31,  -23,  -20,  -16,  -30,  -33,  -39,    0,    0,
-     0,    0,  -44,  -46,  -38,  -34,  -26,  -38,  -46,  -57,    0,    0,
-     0,    0,  -49,  -38,  -48,  -34,  -38,  -38,  -33,  -41,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WROOK_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    2,   26,  -16,   41,   35,  -28,  -28,   -1,    0,    0,
-     0,    0,   16,   26,   59,   65,   74,   84,    5,   44,    0,    0,
-     0,    0,  -24,   -9,   -7,   -3,  -28,    6,   60,  -11,    0,    0,
-     0,    0,  -40,  -38,  -10,    7,  -12,   12,  -30,  -37,    0,    0,
-     0,    0,  -42,  -43,  -26,  -16,   -5,  -12,    5,  -36,    0,    0,
-     0,    0,  -41,  -23,  -11,  -18,    2,    2,   -4,  -30,    0,    0,
-     0,    0,  -34,  -11,  -17,    1,   10,   13,   -4,  -63,    0,    0,
-     0,    0,   -5,   -4,    4,   15,   16,   16,  -27,   -2,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WROOK_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,   43,   32,   48,   31,   35,   44,   42,   37,    0,    0,
-     0,    0,   28,   24,   16,   13,   -1,    8,   31,   19,    0,    0,
-     0,    0,   44,   43,   40,   40,   41,   28,   18,   27,    0,    0,
-     0,    0,   45,   42,   46,   29,   34,   33,   32,   41,    0,    0,
-     0,    0,   38,   42,   40,   31,   21,   20,   15,   25,    0,    0,
-     0,    0,   26,   26,   16,   22,   11,    9,   14,   12,    0,    0,
-     0,    0,   18,   13,   20,   16,    4,    5,    5,   22,    0,    0,
-     0,    0,   10,   18,   19,   11,    8,    5,   17,  -14,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WQUEEN_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -16,  -24,   16,    7,  141,  111,   88,   60,    0,    0,
-     0,    0,   50,   24,   59,   52,   19,  117,  108,  120,    0,    0,
-     0,    0,  -11,  -20,   20,  -29,   28,   77,   50,   61,    0,    0,
-     0,    0,  -40,  -34,  -32,  -29,   -8,  -11,  -14,  -16,    0,    0,
-     0,    0,   -6,  -45,  -14,  -19,   -8,  -10,  -14,  -11,    0,    0,
-     0,    0,  -22,   10,   -4,    2,    3,   -1,   11,    5,    0,    0,
-     0,    0,  -25,    6,   20,   20,   30,   31,   15,   21,    0,    0,
-     0,    0,    4,    5,   11,   25,    6,   -6,   -7,  -35,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WQUEEN_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -24,   34,   21,   22,  -34,  -18,  -38,   18,    0,    0,
-     0,    0,  -61,  -31,  -16,    9,   38,  -17,  -26,  -37,    0,    0,
-     0,    0,  -18,    7,  -22,   64,   52,   20,   36,    9,    0,    0,
-     0,    0,   23,   20,   24,   41,   52,   51,   82,   74,    0,    0,
-     0,    0,  -29,   36,    8,   40,   14,   30,   43,   33,    0,    0,
-     0,    0,   -6,  -54,   -4,  -20,  -11,   11,   13,   20,    0,    0,
-     0,    0,  -29,  -52,  -55,  -46,  -49,  -44,  -61,  -37,    0,    0,
-     0,    0,  -47,  -65,  -54,  -68,  -25,  -42,  -43,  -63,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WKING_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0, -148,  102,   83,  -24, -153, -129,   32,  -11,    0,    0,
-     0,    0,  101,   64,    9,   70,   11,   35,   -8, -122,    0,    0,
-     0,    0,   46,   58,   83,  -33,   43,   59,  130,  -43,    0,    0,
-     0,    0,  -48,  -17,    1,  -46,  -69,  -52,  -39, -105,    0,    0,
-     0,    0,  -58,   33,  -32,  -92, -101,  -56,  -64, -104,    0,    0,
-     0,    0,    3,   28,    7,  -23,  -31,  -18,   16,  -18,    0,    0,
-     0,    0,   35,   64,   31,  -25,   -4,   10,   60,   50,    0,    0,
-     0,    0,    2,   75,   57,  -35,   44,   -4,   64,   40,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WKING_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0, -126,  -75,  -51,  -48,  -12,   13,  -31,  -47,    0,    0,
-     0,    0,  -43,  -22,   -7,  -13,    1,   21,    6,   11,    0,    0,
-     0,    0,  -13,   -3,   -9,    5,   -2,   38,   22,    8,    0,    0,
-     0,    0,   -8,    9,   11,   16,   21,   29,   28,    7,    0,    0,
-     0,    0,  -28,  -24,    8,   19,   25,   15,    6,   -9,    0,    0,
-     0,    0,  -35,  -24,   -9,    2,    6,    0,  -12,  -23,    0,    0,
-     0,    0,  -55,  -43,  -22,  -12,  -10,  -16,  -34,  -48,    0,    0,
-     0,    0,  -86,  -72,  -55,  -35,  -61,  -34,  -60,  -82,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BPAWN_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -89,  -72,  -88,  -74,  -87,  -37,  -32,  -81,    0,    0,
-     0,    0,  -84,  -88,  -69,  -67,  -67,  -44,  -43,  -71,    0,    0,
-     0,    0,  -87,  -85,  -59,  -49,  -52,  -44,  -71,  -91,    0,    0,
-     0,    0,  -73,  -47,  -62,  -37,  -40,  -43,  -41,  -81,    0,    0,
-     0,    0,  -54,  -55,  -37,  -44,    4,   28,   -3,  -59,    0,    0,
-     0,    0,    4,   96,   14,   81,  120,  193,    8,  -58,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BPAWN_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -15,  -25,   -8,  -17,   -1,  -20,  -32,  -31,    0,    0,
-     0,    0,  -24,  -23,  -29,  -25,  -20,  -28,  -36,  -31,    0,    0,
-     0,    0,  -10,  -14,  -30,  -35,  -30,  -33,  -24,  -20,    0,    0,
-     0,    0,   -5,  -18,  -22,  -37,  -31,  -26,  -16,  -10,    0,    0,
-     0,    0,    6,    8,    4,   -6,  -16,  -16,    3,    8,    0,    0,
-     0,    0,    9,   10,   35,   17,   25,  -26,   38,   48,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BKNIGHT_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0, -106,    3,  -26,   -8,   28,    6,    4,   -4,    0,    0,
-     0,    0,   -9,  -27,   16,   29,   36,   40,   24,   13,    0,    0,
-     0,    0,   -2,   11,   32,   46,   56,   45,   52,    7,    0,    0,
-     0,    0,    5,   26,   25,   21,   40,   36,   36,    5,    0,    0,
-     0,    0,    0,   29,   10,   36,   39,   64,   32,   33,    0,    0,
-     0,    0,  -57,  -49,  -30,  -15,  -18,  104,  -14,   51,    0,    0,
-     0,    0, -108,  -69,   45,   -4,    9,   25,  -12,  -58,    0,    0,
-     0,    0, -189, -136,  -81,  -84,   32, -130, -108,  -93,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BKNIGHT_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -57,  -77,  -49,  -41,  -53,  -48,  -80, -109,    0,    0,
-     0,    0,  -69,  -40,  -25,  -21,  -22,  -34,  -46,  -76,    0,    0,
-     0,    0,  -53,  -13,   -6,    8,    8,  -12,  -35,  -45,    0,    0,
-     0,    0,  -37,  -23,   15,   22,   13,   13,   -5,  -39,    0,    0,
-     0,    0,  -34,   -7,   25,   21,   26,    3,  -17,  -42,    0,    0,
-     0,    0,  -39,  -17,   16,   18,   -4,  -15,  -28,  -68,    0,    0,
-     0,    0,  -40,  -17,  -30,    7,  -15,  -29,  -42,  -75,    0,    0,
-     0,    0,  -69,  -51,  -12,  -33,  -42,  -41,  -68, -130,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BBISHOP_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -13,   31,   25,   22,   28,   20,   -8,    5,    0,    0,
-     0,    0,   23,   36,   30,   26,   26,   43,   64,   22,    0,    0,
-     0,    0,   14,   33,   34,   25,   35,   50,   41,   27,    0,    0,
-     0,    0,    3,   21,   18,   34,   33,    8,   19,   12,    0,    0,
-     0,    0,    6,    2,   14,   49,   21,   21,   -1,    9,    0,    0,
-     0,    0,  -20,   32,   28,   11,   19,   41,   31,    0,    0,    0,
-     0,    0,  -29,   -8,  -38,  -48,    1,   38,   19,  -68,    0,    0,
-     0,    0,  -45,  -21, -168, -122,  -73,  -77,  -27,  -15,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BBISHOP_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -49,  -38,  -48,  -34,  -38,  -38,  -33,  -41,    0,    0,
-     0,    0,  -44,  -46,  -38,  -34,  -26,  -38,  -46,  -57,    0,    0,
-     0,    0,  -37,  -31,  -23,  -20,  -16,  -30,  -33,  -39,    0,    0,
-     0,    0,  -31,  -29,  -16,  -13,  -25,  -17,  -33,  -33,    0,    0,
-     0,    0,  -28,  -15,  -17,  -19,  -12,  -21,  -22,  -24,    0,    0,
-     0,    0,  -18,  -28,  -26,  -26,  -26,  -27,  -24,  -20,    0,    0,
-     0,    0,  -25,  -23,  -13,  -22,  -21,  -31,  -25,  -31,    0,    0,
-     0,    0,  -34,  -37,  -10,  -13,  -11,  -21,  -36,  -47,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BROOK_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,   -5,   -4,    4,   15,   16,   16,  -27,   -2,    0,    0,
-     0,    0,  -34,  -11,  -17,    1,   10,   13,   -4,  -63,    0,    0,
-     0,    0,  -41,  -23,  -11,  -18,    2,    2,   -4,  -30,    0,    0,
-     0,    0,  -42,  -43,  -26,  -16,   -5,  -12,    5,  -36,    0,    0,
-     0,    0,  -40,  -38,  -10,    7,  -12,   12,  -30,  -37,    0,    0,
-     0,    0,  -24,   -9,   -7,   -3,  -28,    6,   60,  -11,    0,    0,
-     0,    0,   16,   26,   59,   65,   74,   84,    5,   44,    0,    0,
-     0,    0,    2,   26,  -16,   41,   35,  -28,  -28,   -1,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BROOK_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,   10,   18,   19,   11,    8,    5,   17,  -14,    0,    0,
-     0,    0,   18,   13,   20,   16,    4,    5,    5,   22,    0,    0,
-     0,    0,   26,   26,   16,   22,   11,    9,   14,   12,    0,    0,
-     0,    0,   38,   42,   40,   31,   21,   20,   15,   25,    0,    0,
-     0,    0,   45,   42,   46,   29,   34,   33,   32,   41,    0,    0,
-     0,    0,   44,   43,   40,   40,   41,   28,   18,   27,    0,    0,
-     0,    0,   28,   24,   16,   13,   -1,    8,   31,   19,    0,    0,
-     0,    0,   43,   32,   48,   31,   35,   44,   42,   37,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BQUEEN_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    4,    5,   11,   25,    6,   -6,   -7,  -35,    0,    0,
-     0,    0,  -25,    6,   20,   20,   30,   31,   15,   21,    0,    0,
-     0,    0,  -22,   10,   -4,    2,    3,   -1,   11,    5,    0,    0,
-     0,    0,   -6,  -45,  -14,  -19,   -8,  -10,  -14,  -11,    0,    0,
-     0,    0,  -40,  -34,  -32,  -29,   -8,  -11,  -14,  -16,    0,    0,
-     0,    0,  -11,  -20,   20,  -29,   28,   77,   50,   61,    0,    0,
-     0,    0,   50,   24,   59,   52,   19,  117,  108,  120,    0,    0,
-     0,    0,  -16,  -24,   16,    7,  141,  111,   88,   60,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BQUEEN_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -47,  -65,  -54,  -68,  -25,  -42,  -43,  -63,    0,    0,
-     0,    0,  -29,  -52,  -55,  -46,  -49,  -44,  -61,  -37,    0,    0,
-     0,    0,   -6,  -54,   -4,  -20,  -11,   11,   13,   20,    0,    0,
-     0,    0,  -29,   36,    8,   40,   14,   30,   43,   33,    0,    0,
-     0,    0,   23,   20,   24,   41,   52,   51,   82,   74,    0,    0,
-     0,    0,  -18,    7,  -22,   64,   52,   20,   36,    9,    0,    0,
-     0,    0,  -61,  -31,  -16,    9,   38,  -17,  -26,  -37,    0,    0,
-     0,    0,  -24,   34,   21,   22,  -34,  -18,  -38,   18,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BKING_PSTS = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    2,   75,   57,  -35,   44,   -4,   64,   40,    0,    0,
-     0,    0,   35,   64,   31,  -25,   -4,   10,   60,   50,    0,    0,
-     0,    0,    3,   28,    7,  -23,  -31,  -18,   16,  -18,    0,    0,
-     0,    0,  -58,   33,  -32,  -92, -101,  -56,  -64, -104,    0,    0,
-     0,    0,  -48,  -17,    1,  -46,  -69,  -52,  -39, -105,    0,    0,
-     0,    0,   46,   58,   83,  -33,   43,   59,  130,  -43,    0,    0,
-     0,    0,  101,   64,    9,   70,   11,   35,   -8, -122,    0,    0,
-     0,    0, -148,  102,   83,  -24, -153, -129,   32,  -11,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BKING_PSTE = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,  -86,  -72,  -55,  -35,  -61,  -34,  -60,  -82,    0,    0,
-     0,    0,  -55,  -43,  -22,  -12,  -10,  -16,  -34,  -48,    0,    0,
-     0,    0,  -35,  -24,   -9,    2,    6,    0,  -12,  -23,    0,    0,
-     0,    0,  -28,  -24,    8,   19,   25,   15,    6,   -9,    0,    0,
-     0,    0,   -8,    9,   11,   16,   21,   29,   28,    7,    0,    0,
-     0,    0,  -13,   -3,   -9,    5,   -2,   38,   22,    8,    0,    0,
-     0,    0,  -43,  -22,   -7,  -13,    1,   21,    6,   11,    0,    0,
-     0,    0, -126,  -75,  -51,  -48,  -12,   13,  -31,  -47,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const WOUTPOST = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,   64,   55,   50,   94,   34,   71,    0,    0,    0,
-     0,    0,    0,   15,   23,   33,   20,   51,   59,    0,    0,    0,
-     0,    0,    0,   20,   27,   28,   21,   28,   23,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
-const BOUTPOST = [
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,   20,   27,   28,   21,   28,   23,    0,    0,    0,
-     0,    0,    0,   15,   23,   33,   20,   51,   59,    0,    0,    0,
-     0,    0,    0,   64,   55,   50,   94,   34,   71,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
-     0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0
-];
-
 const WSHELTER = [0,0,-2,0,8,10,37,50,0,27];
 const WSTORM   = [0,0,-1,26,3,3,-12,-2,0,6];
 
@@ -1550,7 +1203,7 @@ function lozChess () {
       else {
         for (var k=0; k < BISHOP_OFFSETS.length; k++) {
           var msq = psq;
-          for (s=0; s < 8; s++) {
+          for (var s=0; s < 8; s++) {
             msq += BISHOP_OFFSETS[k];
             if (this.board.b[msq] == EDGE)
               break;
@@ -1572,7 +1225,7 @@ function lozChess () {
       else {
         for (var k=0; k < ROOK_OFFSETS.length; k++) {
           var msq = psq;
-          for (s=0; s < 8; s++) {
+          for (var s=0; s < 8; s++) {
             msq += ROOK_OFFSETS[k];
             if (this.board.b[msq] == EDGE)
               break;
@@ -1594,7 +1247,7 @@ function lozChess () {
       else {
         for (var k=0; k < QUEEN_OFFSETS.length; k++) {
           var msq = psq;
-          for (s=0; s < 8; s++) {
+          for (var s=0; s < 8; s++) {
             msq += QUEEN_OFFSETS[k];
             if (this.board.b[msq] == EDGE)
               break;
@@ -1757,12 +1410,135 @@ lozChess.prototype.go = function() {
   this.stats.update();
   this.stats.stop();
 
+  var humanCfg = this.getHumanSettings();
+  if (humanCfg.mode) {
+    var humanMove = this.selectHumanMove(board.turn);
+    if (humanMove)
+      this.stats.bestMove = humanMove;
+  }
+
   bestMoveStr = board.formatMove(this.stats.bestMove,UCI_FMT);
 
   if (lozzaHost == HOST_WEB)
     board.makeMove(this.rootNode,this.stats.bestMove);
 
   this.uci.send('bestmove',bestMoveStr);
+}
+
+//}}}
+//{{{  human move selection
+
+lozChess.prototype.getHumanSettings = function () {
+  var opts = this.uci.options || {};
+  var mode = ('' + (opts.HumanMode || 'off')).toLowerCase() === 'on';
+  var skill = parseInt(opts.HumanSkill, 10);
+  var noise = parseInt(opts.HumanNoise, 10);
+  var style = ('' + (opts.HumanStyle || 'balanced')).toLowerCase();
+
+  if (isNaN(skill)) skill = 20;
+  if (isNaN(noise)) noise = 0;
+
+  skill = Math.max(0, Math.min(20, skill));
+  noise = Math.max(0, noise);
+
+  if (!style) style = 'balanced';
+
+  return { mode: mode, skill: skill, noise: noise, style: style };
+}
+
+lozChess.prototype.selectHumanMove = function (turn) {
+  var board = this.board;
+  var node  = this.rootNode;
+  var cfg   = this.getHumanSettings();
+
+  var noise = cfg.noise + (20 - cfg.skill) * 8;
+  var topK  = cfg.skill >= 18 ? 1 : cfg.skill >= 14 ? 2 : cfg.skill >= 10 ? 3 : cfg.skill >= 6 ? 4 : 5;
+
+  node.numMoves = 0;
+  node.sortedIndex = 0;
+
+  var nextTurn = ~turn & COLOR_MASK;
+  var inCheck  = board.isKingAttacked(nextTurn);
+
+  if (inCheck)
+    board.genEvasions(node, turn);
+  else
+    board.genMoves(node, turn);
+
+  var candidates = [];
+  var move = 0;
+
+  node.cache();
+
+  while (move = node.getNextMove()) {
+    board.makeMove(node, move);
+
+    if (board.isKingAttacked(nextTurn)) {
+      board.unmakeMove(node, move);
+      node.uncache();
+      continue;
+    }
+
+    var score = -board.evaluate(nextTurn);
+
+    var isCapture = (move & MOVE_TOOBJ_MASK) || (move & MOVE_EPTAKE_MASK);
+    var isPromo   = (move & MOVE_PROMOTE_MASK);
+    var isCastle  = (move & MOVE_CASTLE_MASK);
+    var givesCheck = board.isKingAttacked(turn);
+    var isQuiet   = !isCapture && !isPromo && !givesCheck;
+
+    var styleBonus = 0;
+    var style = cfg.style || 'balanced';
+
+    if (style === 'aggressive') {
+      styleBonus += (isCapture ? 25 : 0) + (givesCheck ? 35 : 0) + (isPromo ? 20 : 0);
+    } else if (style === 'tactical') {
+      styleBonus += (givesCheck ? 40 : 0) + (isCapture ? 20 : 0) + (isPromo ? 20 : 0);
+    } else if (style === 'defensive') {
+      styleBonus += (isCastle ? 20 : 0) + (isQuiet ? 10 : 0) - (givesCheck ? 10 : 0) - (isCapture ? 6 : 0);
+    } else if (style === 'positional') {
+      styleBonus += (isQuiet ? 15 : 0) + (isCastle ? 10 : 0) - (isCapture ? 4 : 0);
+    }
+
+    score += styleBonus;
+
+    if (noise > 0)
+      score += (Math.random() * 2 - 1) * noise;
+
+    candidates.push({ move: move, score: score });
+
+    board.unmakeMove(node, move);
+    node.uncache();
+  }
+
+  if (!candidates.length)
+    return 0;
+
+  candidates.sort(function (a, b) { return b.score - a.score; });
+
+  var slice = candidates.slice(0, Math.min(topK, candidates.length));
+  if (slice.length === 1)
+    return slice[0].move;
+
+  var best = slice[0].score;
+  var temp = Math.max(1, 1 + (20 - cfg.skill) / 4);
+  var total = 0;
+  var weights = [];
+
+  for (var i = 0; i < slice.length; i++) {
+    var w = Math.exp((slice[i].score - best) / temp);
+    weights.push(w);
+    total += w;
+  }
+
+  var r = Math.random() * total;
+  for (var i = 0; i < slice.length; i++) {
+    r -= weights[i];
+    if (r <= 0)
+      return slice[i].move;
+  }
+
+  return slice[0].move;
 }
 
 //}}}
@@ -1999,7 +1775,7 @@ lozChess.prototype.alphabeta = function (node, depth, turn, alpha, beta, nullOK,
   //}}}
   //{{{  horizon
   
-  if (depth <= 0) {
+if (depth <= 0) {
   
     score = board.ttGet(node, 0, alpha, beta);
   
@@ -2583,8 +2359,8 @@ function lozBoard () {
   
   //}}}
   
-    // FIX: Initialize PRNG seed for fallback random generator
-  this._prngSeed = Date.now() | 0x5DEECE66D; // LCG seed initialization
+  // Seed fallback PRNG with a stable 32-bit value.
+  this._prngSeed = (Date.now() ^ 0x9e3779b9) >>> 0;
   
   //}}}
 
@@ -4185,8 +3961,8 @@ lozBoard.prototype.unmakeMove = function (node,move) {
     //}}}
   }
 }
-
-//}}}
+  
+  //}}}
 //{{{  .makePseudoMove
 
 lozBoard.prototype.makePseudoMove = function (move) {
@@ -4510,7 +4286,7 @@ lozBoard.prototype.evaluate = function (turn) {
     if ((wNumKnights === 1 && !wNumBishops && !bNumKnights && !bNumBishops) ||
         (bNumKnights === 1 && !wNumBishops && !wNumKnights && !bNumBishops) ||
         (wNumBishops === 1 && !wNumKnights && !bNumKnights && !bNumBishops) ||
-        (bNumBishops === 1 && !wNumKnights && !wNumKnights && !wNumBishops)) {
+        (bNumBishops === 1 && !bNumKnights && !wNumKnights && !wNumBishops)) {
       return CONTEMPT;
     }
   }
@@ -4518,8 +4294,22 @@ lozBoard.prototype.evaluate = function (turn) {
   if (numPieces == 4) {
     // K+B vs K+B (same color bishops)
     if (wNumBishops === 1 && bNumBishops === 1 && !wNumKnights && !bNumKnights) {
-      var wBishopSq = this.wList.find(sq => sq && (this.b[sq] & PIECE_MASK) === BISHOP);
-      var bBishopSq = this.bList.find(sq => sq && (this.b[sq] & PIECE_MASK) === BISHOP);
+      var wBishopSq = 0;
+      for (var bi = 0; bi < this.wList.length; bi++) {
+        var sq = this.wList[bi];
+        if (sq && (this.b[sq] & PIECE_MASK) === BISHOP) {
+          wBishopSq = sq;
+          break;
+        }
+      }
+      var bBishopSq = 0;
+      for (var bi = 0; bi < this.bList.length; bi++) {
+        var sq = this.bList[bi];
+        if (sq && (this.b[sq] & PIECE_MASK) === BISHOP) {
+          bBishopSq = sq;
+          break;
+        }
+      }
       if (wBishopSq && bBishopSq) {
         var wColor = WSQUARE[wBishopSq];
         var bColor = WSQUARE[bBishopSq]; // Same color = both on white or both on black squares
@@ -5637,8 +5427,8 @@ lozBoard.prototype.evaluate = function (turn) {
       
       //}}}
     }
-  
-    else if (frObj == B_ROOK) {
+
+else if (frObj == B_ROOK) {
       //{{{  R
       
       mob   = 0;
@@ -6016,8 +5806,7 @@ lozBoard.prototype.getEval = function (eval,node,turn) {
 
 lozBoard.prototype.rand32 = function () {
   
-  // FIX: Check bounds before accessing array
-  if (nextRandom < 4000) {
+  if (nextRandom < randoms.length) {
     return randoms[nextRandom++];
   }
   
@@ -6263,7 +6052,7 @@ lozBoard.prototype.fen = function (turn) {
     if (this.rights & BLACK_RIGHTS_KING)
       fen += 'k';
     if (this.rights & BLACK_RIGHTS_QUEEN)
-      fen += 'Q';
+      fen += 'q';
   }
   else
     fen += ' -';
@@ -6306,8 +6095,14 @@ lozBoard.prototype.playMove = function (moveStr) {
     }
 
     var fMove = this.formatMove(move,UCI_FMT);
+    var normalized = moveStr ? moveStr.toLowerCase() : moveStr;
 
-    if (moveStr == fMove || moveStr+'q' == fMove) {
+    if (normalized == fMove || (normalized && normalized + 'q' == fMove)) {
+      this.turn = ~this.turn & COLOR_MASK;
+      return true;
+    }
+
+    if (normalized && normalized.length == 5 && fMove.length == 5 && normalized.slice(0,4) == fMove.slice(0,4)) {
       this.turn = ~this.turn & COLOR_MASK;
       return true;
     }
@@ -6918,7 +6713,12 @@ function lozUCI () {
   this.nodefs    = 0;
   this.numMoves  = 0;
 
-  this.options = {};
+  this.options = {
+    HumanMode: 'off',
+    HumanSkill: 20,
+    HumanNoise: 0,
+    HumanStyle: 'balanced'
+  };
 }
 
 //}}}
@@ -7320,3 +7120,4 @@ if (lozzaHost == HOST_NODEJS) {
 
 
 //}}}
+
