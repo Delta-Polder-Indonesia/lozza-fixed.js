@@ -50,17 +50,25 @@ Engine mendukung mode **Human** untuk membuat pilihan langkah tidak selalu optim
 
 ### Opsi UCI
 ```
+setoption name MultiPV value 1..5
 setoption name HumanMode value on|off
 setoption name HumanSkill value 0..20
 setoption name HumanNoise value 0..100
 setoption name HumanStyle value balanced|aggressive|defensive|tactical|positional
+setoption name ShowWDL value on|off
+setoption name ShowEvalBar value on|off
+setoption name ShowACPL value on|off
 ```
 
 **Penjelasan:**
+- **MultiPV**: jumlah variasi PV yang ingin ditampilkan (1..5).
 - **HumanMode**: menyalakan pemilihan langkah dengan variasi.
 - **HumanSkill**: semakin kecil, semakin banyak blunder & variasi (0 = sangat lemah, 20 = kuat).
 - **HumanNoise**: menambah randomness pada pemilihan langkah (0 = stabil, 100 = sangat random).
 - **HumanStyle**: gaya bermain (balanced, aggressive, defensive, tactical, positional).
+- **ShowWDL**: tampilkan WDL (win/draw/loss) di output `info`.
+- **ShowEvalBar**: tampilkan eval bar (0–1000) via `info string evalbar`.
+- **ShowACPL**: tampilkan ACPL (average centipawn loss) & loss terakhir via `info string acpl`.
 
 ### Contoh
 ```

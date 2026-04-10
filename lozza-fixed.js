@@ -1,5 +1,5 @@
 //
-// https://github.com/op12no2/lozza
+// https://github.com/Delta-Polder-Indonesia/lozza-fixed.js
 //
 // A Javascript chess engine inspired by Fabien Letouzey's Fruit 2.1.
 //
@@ -1410,11 +1410,39 @@ lozChess.prototype.go = function() {
   this.stats.update();
   this.stats.stop();
 
+  var engineBestMove = this.stats.bestMove;
+
   var humanCfg = this.getHumanSettings();
   if (humanCfg.mode) {
     var humanMove = this.selectHumanMove(board.turn);
     if (humanMove)
       this.stats.bestMove = humanMove;
+  }
+
+  var multiPV = this.getMultiPVSetting();
+  if (humanCfg.mode)
+    multiPV = 1;
+
+  var pvDepth = Math.min(spec.depth, 6);
+  if (!this.stats.timeOut) {
+    var pvLines = this.computeMultiPV(pvDepth, board.turn, multiPV);
+    if (!pvLines.length && this.stats.bestMove) {
+      var fallbackPV = board.getPVStr(this.rootNode, this.stats.bestMove, pvDepth);
+      if (!fallbackPV)
+        fallbackPV = board.formatMove(this.stats.bestMove, board.mvFmt);
+      pvLines = [{ move: this.stats.bestMove, score: score, pv: fallbackPV }];
+    }
+    this.sendPVLines(pvLines, pvDepth);
+  }
+
+  var out = this.getOutputSettings();
+  if (!humanCfg.mode) {
+    this.stats.lastLoss = 0;
+  }
+
+  if (out.showACPL && this.stats.acplCount > 0) {
+    var avg = myround(this.stats.acplSum / this.stats.acplCount);
+    this.uci.send('info string acpl', avg, 'last', myround(this.stats.lastLoss));
   }
 
   bestMoveStr = board.formatMove(this.stats.bestMove,UCI_FMT);
@@ -1517,8 +1545,12 @@ lozChess.prototype.selectHumanMove = function (turn) {
   candidates.sort(function (a, b) { return b.score - a.score; });
 
   var slice = candidates.slice(0, Math.min(topK, candidates.length));
-  if (slice.length === 1)
+  if (slice.length === 1) {
+    this.stats.lastLoss = 0;
+    this.stats.acplSum += 0;
+    this.stats.acplCount += 1;
     return slice[0].move;
+  }
 
   var best = slice[0].score;
   var temp = Math.max(1, 1 + (20 - cfg.skill) / 4);
@@ -1532,13 +1564,164 @@ lozChess.prototype.selectHumanMove = function (turn) {
   }
 
   var r = Math.random() * total;
+  var chosenIndex = 0;
   for (var i = 0; i < slice.length; i++) {
     r -= weights[i];
-    if (r <= 0)
-      return slice[i].move;
+    if (r <= 0) {
+      chosenIndex = i;
+      break;
+    }
   }
 
-  return slice[0].move;
+  var chosenScore = slice[chosenIndex].score;
+  var loss = Math.max(0, best - chosenScore);
+  this.stats.lastLoss = loss;
+  this.stats.acplSum += loss;
+  this.stats.acplCount += 1;
+
+  return slice[chosenIndex].move;
+}
+
+lozChess.prototype.getMultiPVSetting = function () {
+  var val = parseInt(this.uci.options.MultiPV, 10);
+  if (isNaN(val)) val = 1;
+  val = Math.max(1, Math.min(5, val));
+  return val;
+}
+
+lozChess.prototype.formatScoreForUCI = function (score) {
+  var absScore = Math.abs(score);
+  var units = 'cp';
+  var uciScore = score;
+
+  if (absScore >= MINMATE && absScore <= MATE) {
+    units = 'mate';
+    uciScore = (MATE - absScore) / 2 | 0;
+    if (score < 0)
+      uciScore = -uciScore;
+  }
+
+  return { units: units, uciScore: uciScore };
+}
+
+lozChess.prototype.getOutputSettings = function () {
+  var opts = this.uci.options || {};
+  var showWDL = ('' + (opts.ShowWDL || 'off')).toLowerCase() === 'on';
+  var showEvalBar = ('' + (opts.ShowEvalBar || 'off')).toLowerCase() === 'on';
+  var showACPL = ('' + (opts.ShowACPL || 'off')).toLowerCase() === 'on';
+  return { showWDL: showWDL, showEvalBar: showEvalBar, showACPL: showACPL };
+}
+
+lozChess.prototype.scoreToWDL = function (score) {
+  var absScore = Math.abs(score);
+  if (absScore >= MINMATE && absScore <= MATE) {
+    return score > 0 ? { w: 1000, d: 0, l: 0 } : { w: 0, d: 0, l: 1000 };
+  }
+  var s = score / 400;
+  var win = 1 / (1 + Math.exp(-s));
+  var draw = Math.max(0.05, 0.3 - Math.min(0.25, absScore / 2000));
+  var rest = 1 - draw;
+  var w = rest * win;
+  var l = rest - w;
+  return {
+    w: Math.round(w * 1000),
+    d: Math.round(draw * 1000),
+    l: Math.round(l * 1000)
+  };
+}
+
+lozChess.prototype.scoreToEvalBar = function (score) {
+  var absScore = Math.abs(score);
+  if (absScore >= MINMATE && absScore <= MATE) {
+    return score > 0 ? 1000 : 0;
+  }
+  var bar = 500 + 500 * Math.tanh(score / 400);
+  return Math.max(0, Math.min(1000, Math.round(bar)));
+}
+
+lozChess.prototype.computeMultiPV = function (depth, turn, lines) {
+
+  var board = this.board;
+  var node = this.rootNode;
+  var nextTurn = ~turn & COLOR_MASK;
+
+  node.numMoves = 0;
+  node.sortedIndex = 0;
+
+  var inCheck = board.isKingAttacked(nextTurn);
+  if (inCheck)
+    board.genEvasions(node, turn);
+  else
+    board.genMoves(node, turn);
+
+  var list = [];
+  var move = 0;
+
+  node.cache();
+
+  while (move = node.getNextMove()) {
+    board.makeMove(node, move);
+
+    if (board.isKingAttacked(nextTurn)) {
+      board.unmakeMove(node, move);
+      node.uncache();
+      continue;
+    }
+
+    var score = -this.alphabeta(node.childNode, depth - 1, nextTurn, -INFINITY, INFINITY, NULL_Y, INCHECK_UNKNOWN);
+    if (this.stats.timeOut) {
+      board.unmakeMove(node, move);
+      node.uncache();
+      break;
+    }
+
+    var pvStr = board.getPVStr(node, move, depth);
+    if (!pvStr)
+      pvStr = board.formatMove(move, board.mvFmt);
+
+    list.push({ move: move, score: score, pv: pvStr });
+
+    board.unmakeMove(node, move);
+    node.uncache();
+  }
+
+  list.sort(function (a, b) { return b.score - a.score; });
+
+  return list.slice(0, Math.min(lines, list.length));
+}
+
+lozChess.prototype.sendPVLines = function (lines, depth) {
+  if (!lines || !lines.length)
+    return;
+
+  var out = this.getOutputSettings();
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var scoreInfo = this.formatScoreForUCI(line.score);
+    var args = [
+      'info',
+      this.stats.nodeStr(),
+      'depth', depth,
+      'seldepth', this.stats.selDepth,
+      'multipv', i + 1,
+      'score', scoreInfo.units, scoreInfo.uciScore
+    ];
+
+    if (out.showWDL) {
+      var wdl = this.scoreToWDL(line.score);
+      args.push('wdl', wdl.w, wdl.d, wdl.l);
+    }
+
+    args.push('pv', line.pv);
+
+    this.uci.send.apply(this.uci, args);
+
+    if (out.showEvalBar) {
+      var bar = this.scoreToEvalBar(line.score);
+      this.uci.send('info string evalbar', bar, 'multipv', i + 1);
+    }
+  }
 }
 
 //}}}
@@ -6635,6 +6818,9 @@ lozStats.prototype.init = function () {
   this.timeOut   = 0;
   this.selDepth  = 0;
   this.bestMove  = 0;
+  this.acplSum   = 0;
+  this.acplCount = 0;
+  this.lastLoss  = 0;
 }
 
 //}}}
@@ -6714,10 +6900,14 @@ function lozUCI () {
   this.numMoves  = 0;
 
   this.options = {
+    MultiPV: 1,
     HumanMode: 'off',
     HumanSkill: 20,
     HumanNoise: 0,
-    HumanStyle: 'balanced'
+    HumanStyle: 'balanced',
+    ShowWDL: 'off',
+    ShowEvalBar: 'off',
+    ShowACPL: 'off'
   };
 }
 
@@ -6990,6 +7180,14 @@ onmessage = function(e) {
       
       uci.send('id name Lozza',BUILD);
       uci.send('id author Colin Jenkins');
+      uci.send('option name MultiPV type spin default 1 min 1 max 5');
+      uci.send('option name HumanMode type check default false');
+      uci.send('option name HumanSkill type spin default 20 min 0 max 20');
+      uci.send('option name HumanNoise type spin default 0 min 0 max 100');
+      uci.send('option name HumanStyle type combo default balanced var balanced var aggressive var tactical var defensive var positional');
+      uci.send('option name ShowWDL type check default false');
+      uci.send('option name ShowEvalBar type check default false');
+      uci.send('option name ShowACPL type check default false');
       uci.send('uciok');
       
       break;
@@ -7120,4 +7318,3 @@ if (lozzaHost == HOST_NODEJS) {
 
 
 //}}}
-
