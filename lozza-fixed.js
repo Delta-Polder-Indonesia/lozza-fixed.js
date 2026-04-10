@@ -1,5 +1,5 @@
 //
-// https://github.com/Delta-Polder-Indonesia/lozza-fixed.js
+// https://github.com/op12no2/lozza
 //
 // A Javascript chess engine inspired by Fabien Letouzey's Fruit 2.1.
 //
@@ -52,11 +52,6 @@ function myround(x) {
 
 //}}}
 //{{{  wbmap
-//
-// Removed on release.
-//
-
-
 //}}}
 
 //}}}
@@ -125,8 +120,29 @@ var BASE_CASTLING   =  40000004000;  // yes
 var BASE_BADTAKES   =  40000003000;  // yes
 var BASE_HISSLIDE   =  20000002000;  // yes
 var BASE_PSTSLIDE   =         1000;  // yes
+var BASE_COUNTERMOVE = 30000002500;
 
 var BASE_LMR        = BASE_BADTAKES;
+
+var counterMoves = Array(144);
+for (var cmI = 0; cmI < 144; cmI++) {
+  counterMoves[cmI] = Array(144);
+  for (var cmJ = 0; cmJ < 144; cmJ++)
+    counterMoves[cmI][cmJ] = 0;
+}
+
+var continuationHistory = Array(2);
+for (var chD = 0; chD < 2; chD++) {
+  continuationHistory[chD] = Array(6);
+  for (var chP = 0; chP < 6; chP++) {
+    continuationHistory[chD][chP] = Array(6);
+    for (var chPP = 0; chPP < 6; chPP++) {
+      continuationHistory[chD][chP][chPP] = Array(144);
+      for (var chS = 0; chS < 144; chS++)
+        continuationHistory[chD][chP][chPP][chS] = 0;
+    }
+  }
+}
 
 var MOVE_TO_BITS      = 0;
 var MOVE_FR_BITS      = 8;
@@ -513,6 +529,53 @@ var TRAPPED_E = 40;
 var TEMPO_S = 10;
 var TEMPO_E = 6;
 //}}}
+
+var OPENING_BOOK = {
+  'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -': {
+    moves: ['e2e4', 'd2d4', 'g1f3', 'c2c4'],
+    weights: [100, 80, 70, 60]
+  },
+  'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -': {
+    moves: ['c7c5', 'e7e5', 'e7e6', 'c7c6'],
+    weights: [100, 90, 55, 45]
+  },
+  'rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq -': {
+    moves: ['d7d5', 'g8f6', 'e7e6'],
+    weights: [100, 70, 55]
+  },
+  'rnbqkbnr/pppppppp/8/8/2P5/8/PP1PPPPP/RNBQKBNR b KQkq -': {
+    moves: ['g8f6', 'e7e5', 'c7c5'],
+    weights: [100, 70, 65]
+  },
+  'rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq -': {
+    moves: ['d7d5', 'g8f6', 'c7c5'],
+    weights: [90, 90, 60]
+  }
+};
+
+var BENCH_CORE_SUITE = [
+  { id: 'startpos', fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' },
+  { id: 'kiwipete', fen: 'r3k2r/p1ppqpb1/bn2pnp1/2pP4/1p2P3/2N2N2/PPQBBPPP/R3K2R w KQkq - 0 1' },
+  { id: 'midgame', fen: 'r2q1rk1/pp2bppp/2np1n2/3Np3/2P1P3/2N1B3/PP2QPPP/R3K2R w KQ - 0 1' }
+];
+
+var BENCH_LCT_SUITE = [
+  { id: 'lct1', fen: 'r1bq1rk1/pp1n1ppp/2p1pn2/2bp4/2B5/2NP1NP1/PP2PPBP/R1BQ1RK1 w - - 0 9', bestMove: 'c4d5' },
+  { id: 'lct2', fen: 'r2q1rk1/ppp2ppp/2n5/3np3/3P4/2P2N2/PP1N1PPP/R1BQ1RK1 w - - 0 11', bestMove: 'd4e5' },
+  { id: 'lct3', fen: '2r2rk1/pp1q1ppp/2n1pn2/2bp4/2P5/1PNP1NP1/PB2PPBP/R2Q1RK1 w - - 0 10', bestMove: 'c4d5' }
+];
+
+var BENCH_STS_SUITE = [
+  { id: 'sts1', fen: 'r1bq1rk1/pppp1ppp/2n2n2/4p3/4P3/1NN5/PPPP1PPP/R1BQKB1R w KQ - 2 5', bestMove: 'f1b5' },
+  { id: 'sts2', fen: 'r1bq1rk1/pp2bppp/2n1pn2/2pp4/3P4/2PB1N2/PP1N1PPP/R1BQ1RK1 w - - 0 8', bestMove: 'd4c5' },
+  { id: 'sts3', fen: 'r2q1rk1/pp1n1ppp/2p1pn2/2bp4/2P5/2NP1NP1/PP2PPBP/R1BQ1RK1 w - - 0 9', bestMove: 'c4d5' }
+];
+
+var REGRESSION_TEST = [
+  { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', depth: 6, expectedMove: 'e2e4', tolerance: 80 },
+  { fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/3P4/2N5/PPP1PPPP/R1BQKBNR b KQkq - 1 2', depth: 6, expectedMove: 'e5d4', tolerance: 120 },
+  { fen: 'r3k2r/p1ppqpb1/bn2pnp1/2pP4/1p2P3/2N2N2/PPQBBPPP/R3K2R w KQkq - 0 1', depth: 6, expectedMove: 'e2a6', tolerance: 120 }
+];
 
 var MAP = [];
 
@@ -1311,17 +1374,40 @@ lozChess.prototype.go = function() {
 
   var board = this.board;
   var spec  = this.uci.spec;
+  this.uci.ponderResultMove = '';
+  this.uci.ponderResultPonder = '';
+  var skillLevel = this.getSkillLevelSetting();
+  var allowPonder = ('' + (this.uci.options.Ponder || 'off')).toLowerCase() === 'on';
+
+  CONTEMPT = this.computeDynamicContempt(board.turn);
+
+  if (!spec.ponder && spec.depth > 0 && spec.depth <= 5 && spec.moves && spec.moves.length < 10) {
+    var bookMoveStr = this.getBookMove();
+    if (bookMoveStr) {
+      this.uci.send('info string book move', bookMoveStr);
+      this.uci.send('info string is_book_move', 'true');
+      if (allowPonder) {
+        this.uci.ponderMove = '';
+        this.uci.send('bestmove', bookMoveStr);
+      }
+      else {
+        this.uci.send('bestmove', bookMoveStr);
+      }
+      return;
+    }
+  }
 
   //{{{  sort out spec
   
   //this.uci.send('info hashfull',myround(1000*board.hashUsed/TTSIZE));
   
   var totTime = 0;
-  var movTime = 0;
-  var incTime = 0;
   
   if (spec.depth <= 0)
     spec.depth = MAX_PLY;
+
+  if (skillLevel < 20)
+    spec.depth = Math.min(spec.depth, Math.max(2, skillLevel + 2));
   
   if (spec.moveTime > 0)
     this.stats.moveTime = spec.moveTime;
@@ -1330,35 +1416,27 @@ lozChess.prototype.go = function() {
     this.stats.maxNodes = spec.maxNodes;
   
   if (spec.moveTime == 0) {
-  
-    if (spec.movesToGo > 0)
-      var movesToGo = spec.movesToGo + 2;
-    else
-      var movesToGo = 30;
-  
-    if (board.turn == WHITE) {
+    this.stats.moveTime = this.calculateMoveTime(board.turn, skillLevel);
+
+    if (board.turn == WHITE)
       totTime = spec.wTime;
-      incTime = spec.wInc;
-    }
-    else {
+    else
       totTime = spec.bTime;
-      incTime = spec.bInc;
-    }
-  
-    //totTime = myround(totTime * (movesToGo - 1) / movesToGo);
-    movTime = myround(totTime / movesToGo) + incTime;
-  
-    //if (this.uci.numMoves <= 3) {
-      //movTime *= 2;
-    //}
-  
-    movTime = movTime * 0.95;
-  
-    if (movTime > 0)
-      this.stats.moveTime = movTime | 0;
-  
+
     if (this.stats.moveTime < 1 && (spec.wTime || spec.bTime))
       this.stats.moveTime = 1;
+  }
+
+  if (skillLevel < 20 && this.stats.moveTime > 0) {
+    var skillTimeScale = 0.45 + (skillLevel / 20) * 0.55;
+    this.stats.moveTime = Math.max(1, myround(this.stats.moveTime * skillTimeScale));
+  }
+
+  if (spec.ponder) {
+    this.uci.pondering = true;
+    this.uci.ponderMove = spec.moves && spec.moves.length ? spec.moves[spec.moves.length - 1] : '';
+    this.stats.moveTime = 0;
+    this.stats.maxNodes = 0;
   }
   
   //}}}
@@ -1405,6 +1483,10 @@ lozChess.prototype.go = function() {
 
     if (this.stats.timeOut)
       break;
+
+    if (ply % 2 == 0) {
+      this.uci.send('info', 'depth', ply, 'seldepth', this.stats.selDepth, 'hashfull', myround(1000*board.hashUsed/TTSIZE), this.stats.nodeStr());
+    }
   }
 
   this.stats.update();
@@ -1418,12 +1500,17 @@ lozChess.prototype.go = function() {
     if (humanMove)
       this.stats.bestMove = humanMove;
   }
+  else {
+    this.stats.lastLoss = 0;
+    this.stats.acplSum += 0;
+    this.stats.acplCount += 1;
+  }
 
-  var multiPV = this.getMultiPVSetting();
+  var multiPV = this.getOptimizedMultiPV(this.getMultiPVSetting(), spec.depth, humanCfg.mode);
   if (humanCfg.mode)
     multiPV = 1;
 
-  var pvDepth = Math.min(spec.depth, 6);
+  var pvDepth = Math.min(spec.depth, multiPV > 1 ? 5 : 8);
   if (!this.stats.timeOut) {
     var pvLines = this.computeMultiPV(pvDepth, board.turn, multiPV);
     if (!pvLines.length && this.stats.bestMove) {
@@ -1436,21 +1523,38 @@ lozChess.prototype.go = function() {
   }
 
   var out = this.getOutputSettings();
-  if (!humanCfg.mode) {
-    this.stats.lastLoss = 0;
-  }
 
   if (out.showACPL && this.stats.acplCount > 0) {
     var avg = myround(this.stats.acplSum / this.stats.acplCount);
     this.uci.send('info string acpl', avg, 'last', myround(this.stats.lastLoss));
   }
 
+  if (pvLines && pvLines.length) {
+    var recapScore = pvLines[0].score;
+    var recapWDL = this.scoreToWDL(recapScore);
+    var recap = ['info string recap', 'loss', myround(this.stats.lastLoss), 'acpl', this.stats.acplCount ? myround(this.stats.acplSum / this.stats.acplCount) : 0, 'wdl', recapWDL.w + '/' + recapWDL.d + '/' + recapWDL.l];
+    this.uci.send.apply(this.uci, recap);
+  }
+
+  var ponderStr = '';
+  if (allowPonder)
+    ponderStr = this.computePonderMove(this.stats.bestMove, board.turn);
+
   bestMoveStr = board.formatMove(this.stats.bestMove,UCI_FMT);
+
+  if (spec.ponder) {
+    this.uci.ponderResultMove = bestMoveStr;
+    this.uci.ponderResultPonder = ponderStr;
+    return;
+  }
 
   if (lozzaHost == HOST_WEB)
     board.makeMove(this.rootNode,this.stats.bestMove);
 
-  this.uci.send('bestmove',bestMoveStr);
+  if (ponderStr)
+    this.uci.send('bestmove',bestMoveStr,'ponder',ponderStr);
+  else
+    this.uci.send('bestmove',bestMoveStr);
 }
 
 //}}}
@@ -1459,15 +1563,17 @@ lozChess.prototype.go = function() {
 lozChess.prototype.getHumanSettings = function () {
   var opts = this.uci.options || {};
   var mode = ('' + (opts.HumanMode || 'off')).toLowerCase() === 'on';
-  var skill = parseInt(opts.HumanSkill, 10);
+  var skillLevel = this.getSkillLevelSetting();
   var noise = parseInt(opts.HumanNoise, 10);
   var style = ('' + (opts.HumanStyle || 'balanced')).toLowerCase();
 
-  if (isNaN(skill)) skill = 20;
   if (isNaN(noise)) noise = 0;
 
-  skill = Math.max(0, Math.min(20, skill));
-  noise = Math.max(0, noise);
+  if (!mode && skillLevel < 20)
+    mode = true;
+
+  var skill = skillLevel;
+  noise = Math.max(0, noise + (20 - skillLevel) * 3);
 
   if (!style) style = 'balanced';
 
@@ -1589,6 +1695,172 @@ lozChess.prototype.getMultiPVSetting = function () {
   return val;
 }
 
+lozChess.prototype.getOptimizedMultiPV = function (requested, depth, humanMode) {
+  if (humanMode)
+    return 1;
+  if (depth >= 16)
+    return 1;
+  if (depth >= 12)
+    return Math.min(2, requested);
+  if (depth >= 10)
+    return Math.min(3, requested);
+  return requested;
+}
+
+lozChess.prototype.getBookMove = function () {
+
+  var key = this.board.fenKey();
+  var entry = OPENING_BOOK[key];
+
+  if (!entry || !entry.moves || !entry.moves.length)
+    return '';
+
+  var moves = entry.moves;
+  var weights = entry.weights || [];
+  var total = 0;
+
+  for (var i = 0; i < moves.length; i++)
+    total += (weights[i] || 1);
+
+  if (total <= 0)
+    total = moves.length;
+
+  for (var attempt = 0; attempt < Math.min(8, moves.length * 2); attempt++) {
+    var r = Math.random() * total;
+    var idx = 0;
+
+    for (idx = 0; idx < moves.length; idx++) {
+      r -= (weights[idx] || 1);
+      if (r <= 0)
+        break;
+    }
+
+    if (idx >= moves.length)
+      idx = moves.length - 1;
+
+    var moveStr = moves[idx];
+    if (this.board.isLegalMoveStr(moveStr))
+      return moveStr;
+  }
+
+  for (var i = 0; i < moves.length; i++) {
+    if (this.board.isLegalMoveStr(moves[i]))
+      return moves[i];
+  }
+
+  return '';
+}
+
+lozChess.prototype.computePonderMove = function (bestMove, turn) {
+
+  if (!bestMove)
+    return '';
+
+  var node = this.rootNode;
+  var board = this.board;
+  var ponderMove = 0;
+
+  node.cache();
+  board.makeMove(node, bestMove);
+
+  ponderMove = board.ttGetMove(node.childNode);
+  if (!ponderMove) {
+    var replyNode = node.childNode;
+    replyNode.numMoves = 0;
+    replyNode.sortedIndex = 0;
+    var nextTurn = ~turn & COLOR_MASK;
+    if (board.isKingAttacked(~nextTurn & COLOR_MASK))
+      board.genEvasions(replyNode, nextTurn);
+    else
+      board.genMoves(replyNode, nextTurn);
+
+    while (ponderMove = replyNode.getNextMove()) {
+      if (board.isPseudoLegalMoveSafe(replyNode, ponderMove, nextTurn))
+        break;
+    }
+  }
+
+  board.unmakeMove(node, bestMove);
+  node.uncache();
+
+  if (!ponderMove)
+    return '';
+
+  return board.formatMove(ponderMove, UCI_FMT);
+}
+
+lozChess.prototype.getSkillLevelSetting = function () {
+  var val = parseInt(this.uci.options.SkillLevel, 10);
+  if (isNaN(val)) val = 20;
+  return Math.max(0, Math.min(20, val));
+}
+
+lozChess.prototype.getContemptSetting = function () {
+  var val = parseInt(this.uci.options.Contempt, 10);
+  if (isNaN(val)) val = 0;
+  return Math.max(-200, Math.min(200, val));
+}
+
+lozChess.prototype.calculateMoveTime = function (turn, skillLevel) {
+  var spec = this.uci.spec;
+  var board = this.board;
+
+  var totalTime = turn == WHITE ? spec.wTime : spec.bTime;
+  var incTime = turn == WHITE ? spec.wInc : spec.bInc;
+  if (!totalTime && !incTime)
+    return 0;
+
+  var totalPieces = board.wCount + board.bCount;
+  var openingPhase = totalPieces > 26;
+  var endgamePhase = totalPieces < 12;
+  var movesToGo = spec.movesToGo > 0 ? spec.movesToGo : (endgamePhase ? 20 : (openingPhase ? 38 : 28));
+  movesToGo = Math.max(8, movesToGo);
+
+  var base = myround(totalTime / movesToGo) + incTime;
+  var complexity = 1.0;
+
+  if (Math.abs(this.stats.lastLoss || 0) > 30)
+    complexity += 0.15;
+
+  if (Math.abs(board.runningEvalS) > 250)
+    complexity -= 0.08;
+
+  complexity *= (0.6 + (skillLevel / 20) * 0.4);
+
+  var moveTime = myround(base * complexity);
+  var floor = totalTime > 0 ? Math.max(10, Math.min(120, (totalTime / 300) | 0)) : 10;
+  var cap = totalTime > 0 ? Math.max(50, myround(totalTime * 0.65)) : moveTime;
+
+  moveTime = Math.max(floor, moveTime);
+  moveTime = Math.min(cap, moveTime);
+  return moveTime;
+}
+
+lozChess.prototype.computeDynamicContempt = function (turn) {
+  var base = this.getContemptSetting();
+  var skill = this.getSkillLevelSetting();
+  var board = this.board;
+
+  var material = 0;
+  for (var p = PAWN; p <= QUEEN; p++) {
+    material += MATERIAL[p] * (board.wCounts[p] - board.bCounts[p]);
+  }
+
+  var stmMaterial = turn == WHITE ? material : -material;
+  var dynamic = base;
+  var swing = Math.min(40, Math.abs(stmMaterial) / 50 | 0);
+
+  if (stmMaterial > 0)
+    dynamic -= swing;
+  else if (stmMaterial < 0)
+    dynamic += swing;
+
+  var skillScale = 1 + (20 - skill) / 20;
+  dynamic = myround(dynamic * skillScale);
+
+  return Math.max(-200, Math.min(200, dynamic));
+}
+
 lozChess.prototype.formatScoreForUCI = function (score) {
   var absScore = Math.abs(score);
   var units = 'cp';
@@ -1610,6 +1882,37 @@ lozChess.prototype.getOutputSettings = function () {
   var showEvalBar = ('' + (opts.ShowEvalBar || 'off')).toLowerCase() === 'on';
   var showACPL = ('' + (opts.ShowACPL || 'off')).toLowerCase() === 'on';
   return { showWDL: showWDL, showEvalBar: showEvalBar, showACPL: showACPL };
+}
+
+lozChess.prototype.updateQuietHeuristics = function (node, move, delta, isCutoff) {
+
+  if (move & (MOVE_TOOBJ_MASK | MOVE_PROMOTE_MASK | MOVE_EPTAKE_MASK))
+    return;
+
+  var fr = (move & MOVE_FR_MASK) >>> MOVE_FR_BITS;
+  var to = (move & MOVE_TO_MASK) >>> MOVE_TO_BITS;
+  var frObj = (move & MOVE_FROBJ_MASK) >>> MOVE_FROBJ_BITS;
+  var frPiece = frObj & PIECE_MASK;
+
+  if (frPiece < PAWN || frPiece > KING)
+    return;
+
+  if (isCutoff && node.parentNode && node.parentNode.lastTo)
+    counterMoves[node.parentNode.lastTo][fr] = move;
+
+  if (node.parentNode && node.parentNode.lastMovedPiece >= PAWN && node.parentNode.lastMovedPiece <= KING) {
+    var v0 = continuationHistory[0][frPiece - 1][node.parentNode.lastMovedPiece - 1][to] + delta;
+    if (v0 > 30000) v0 = 30000;
+    if (v0 < -30000) v0 = -30000;
+    continuationHistory[0][frPiece - 1][node.parentNode.lastMovedPiece - 1][to] = v0;
+  }
+
+  if (node.grandparentNode && node.grandparentNode.lastMovedPiece >= PAWN && node.grandparentNode.lastMovedPiece <= KING) {
+    var v1 = continuationHistory[1][frPiece - 1][node.grandparentNode.lastMovedPiece - 1][to] + (delta >> 1);
+    if (v1 > 30000) v1 = 30000;
+    if (v1 < -30000) v1 = -30000;
+    continuationHistory[1][frPiece - 1][node.grandparentNode.lastMovedPiece - 1][to] = v1;
+  }
 }
 
 lozChess.prototype.scoreToWDL = function (score) {
@@ -1705,7 +2008,8 @@ lozChess.prototype.sendPVLines = function (lines, depth) {
       'depth', depth,
       'seldepth', this.stats.selDepth,
       'multipv', i + 1,
-      'score', scoreInfo.units, scoreInfo.uciScore
+      'score', scoreInfo.units, scoreInfo.uciScore,
+      'hashfull', myround(1000*this.board.hashUsed/TTSIZE)
     ];
 
     if (out.showWDL) {
@@ -1846,10 +2150,12 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
           node.addKiller(score, move);
           board.ttPut(TT_BETA, depth, score, move, node.ply, alpha, beta, INFINITY);
           board.addHistory(depth*depth*depth, move);
+          this.updateQuietHeuristics(node, move, depth * depth, true);
           return score;
         }
         alpha = score;
         board.addHistory(depth*depth, move);
+        this.updateQuietHeuristics(node, move, depth, false);
         //{{{  update best move & send score to UI
         
         this.stats.bestMove = move;
@@ -1880,8 +2186,10 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
       bestScore = score;
       bestMove  = move;
     }
-    else
+    else {
       board.addHistory(-depth, move);
+      this.updateQuietHeuristics(node, move, -depth, false);
+    }
   }
 
 
@@ -1945,7 +2253,6 @@ lozChess.prototype.alphabeta = function (node, depth, turn, alpha, beta, nullOK,
   //}}}
     //{{{  check for draws
   
-  // FIX: Changed from > 100 to >= 100 (50 moves = 100 plies)
   if (board.repHi - board.repLo >= 100)
     return CONTEMPT;
   
@@ -1994,6 +2301,14 @@ if (depth <= 0) {
   
   if (doBeta && depth <= 2 && ((standPat = board.getEval(standPat,node,turn)) - depth * 200) >= beta) {
     return beta;
+  }
+
+  if (!pvNode && !inCheck && depth <= 2) {
+    var razorEval = board.getEval(standPat, node, turn);
+    var razorMargin = 120 + depth * 80;
+    if (razorEval + razorMargin < alpha)
+      return this.qSearch(node, -1, turn, alpha, beta, 0);
+    standPat = razorEval;
   }
   
   //}}}
@@ -2097,6 +2412,12 @@ if (depth <= 0) {
     givesCheck = INCHECK_UNKNOWN;
     E          = 0;
     R          = 0;
+    var moveKeeper = false;
+    var frObj = (move & MOVE_FROBJ_MASK) >>> MOVE_FROBJ_BITS;
+    var frPiece = frObj & PIECE_MASK;
+    var frCol = frObj & COLOR_MASK;
+    var toSq = (move & MOVE_TO_MASK) >>> MOVE_TO_BITS;
+    var toPiece = ((move & MOVE_TOOBJ_MASK) >>> MOVE_TOOBJ_BITS) & PIECE_MASK;
     
     if (inCheck && (pvNode || depth < 5)) {
       E = 1;
@@ -2105,8 +2426,16 @@ if (depth <= 0) {
     else if (numLegalMoves > 0 && (doLMP || doLMR || doFutility)) {
     
       keeper = node.base >= BASE_LMR || (move & KEEPER_MASK) || board.alphaMate(alpha);
+      moveKeeper = keeper;
     
       if (!keeper) {
+
+        if (depth >= 4 && !(move & (MOVE_TOOBJ_MASK | MOVE_PROMOTE_MASK | MOVE_EPTAKE_MASK))) {
+          var histScore = frCol == WHITE ? board.wHistory[frPiece][toSq] : board.bHistory[frPiece][toSq];
+          var histThreshold = (numSlides + 6) * depth;
+          if (histScore < histThreshold)
+            continue;
+        }
     
         board.makePseudoMove(move);
         givesCheck = board.isKingAttacked(turn);
@@ -2124,6 +2453,34 @@ if (depth <= 0) {
           R = 1 + depth/5 + numSlides/20 | 0;
         }
       }
+    }
+
+    if (!pvNode && !inCheck && depth <= 4 && numLegalMoves > 6 && !moveKeeper) {
+      var nmcpEval = standPat == INFINITY ? board.getEval(standPat, node, turn) : standPat;
+      if (nmcpEval + (90 + depth * 35) < alpha)
+        continue;
+      standPat = nmcpEval;
+    }
+
+    if (givesCheck && frPiece == QUEEN && depth >= 6)
+      E = Math.max(E, 2);
+
+    if ((move & MOVE_TOOBJ_MASK) && toPiece >= ROOK && depth <= 6)
+      E = Math.max(E, 1);
+
+    if ((move & MOVE_TOOBJ_MASK) && node.parentNode && node.parentNode.lastTo && toSq == node.parentNode.lastTo && depth >= 5 && depth <= 10) {
+      var prevCapturedPiece = node.parentNode.lastCapturedPiece;
+      var nowCapturedValue = MATERIAL[toPiece] || 0;
+      var prevCapturedValue = MATERIAL[prevCapturedPiece] || 0;
+      if (prevCapturedValue && (nowCapturedValue >= prevCapturedValue || Math.abs(nowCapturedValue - prevCapturedValue) <= VALUE_PAWN * 2))
+        E = Math.max(E, 1);
+    }
+
+    if ((move & MOVE_PAWN_MASK) && !(move & MOVE_PROMOTE_MASK)) {
+      if ((turn == WHITE && RANK[toSq] == 7) || (turn == BLACK && RANK[toSq] == 2))
+        E = Math.max(E, 1);
+      else if ((turn == WHITE && RANK[toSq] == 6 && board.isPassedPawn(toSq, WHITE)) || (turn == BLACK && RANK[toSq] == 3 && board.isPassedPawn(toSq, BLACK)))
+        E = Math.max(E, 1);
     }
     
     //}}}
@@ -2178,16 +2535,20 @@ if (depth <= 0) {
           node.addKiller(score, move);
           board.ttPut(TT_BETA, depth, score, move, node.ply, alpha, beta, standPat);
           board.addHistory(depth*depth*depth, move);
+          this.updateQuietHeuristics(node, move, depth * depth, true);
           return score;
         }
         board.addHistory(depth*depth, move);
+        this.updateQuietHeuristics(node, move, depth, false);
         alpha     = score;
       }
       bestScore = score;
       bestMove  = move;
     }
-    else
+    else {
       board.addHistory(-depth, move);
+      this.updateQuietHeuristics(node, move, -depth, false);
+    }
   }
 
   //{{{  no moves?
@@ -2281,6 +2642,16 @@ lozChess.prototype.qSearch = function (node, depth, turn, alpha, beta, sq) {
     if (!inCheck && phase <= EPHASE && !(move & MOVE_PROMOTE_MASK) && standPat + 200 + MATERIAL[((move & MOVE_TOOBJ_MASK) >>> MOVE_TOOBJ_BITS) & PIECE_MASK] < alpha) {
     
       continue;
+    }
+
+    if (!inCheck && (move & MOVE_TOOBJ_MASK) && !(move & MOVE_PROMOTE_MASK) && depth < -1) {
+      var seeMargin = 110;
+      if (phase <= EPHASE)
+        seeMargin -= 20;
+      if (depth <= -4)
+        seeMargin += 20;
+      if (board.see(move) < -seeMargin)
+        continue;
     }
     
     //}}}
@@ -2430,6 +2801,172 @@ lozChess.prototype.perftSearch = function (node, depth, turn, inner) {
 }
 
 //}}}
+//{{{  .runBench
+
+lozChess.prototype.loadPositionFromFEN = function (fen) {
+
+  var parts = (fen || '').split(' ');
+  this.uci.spec.board = parts[0] || '8/8/8/8/8/8/8/8';
+  this.uci.spec.turn = parts[1] || 'w';
+  this.uci.spec.rights = parts[2] || '-';
+  this.uci.spec.ep = parts[3] || '-';
+  this.uci.spec.hmc = parseInt(parts[4], 10) || 0;
+  this.uci.spec.fmc = parseInt(parts[5], 10) || 1;
+  this.uci.spec.moves = [];
+
+  return this.position();
+}
+
+lozChess.prototype.getBenchSuite = function (suiteName) {
+
+  var key = (suiteName || 'core').toLowerCase();
+  if (key == 'lct')
+    return { name: 'LCT', tests: BENCH_LCT_SUITE };
+  if (key == 'sts')
+    return { name: 'STS', tests: BENCH_STS_SUITE };
+  return { name: 'CORE', tests: BENCH_CORE_SUITE };
+}
+
+lozChess.prototype.runBench = function (suiteName, depth) {
+
+  var suite = this.getBenchSuite(suiteName);
+  var tests = suite.tests;
+  var benchDepth = parseInt(depth, 10);
+
+  if (isNaN(benchDepth) || benchDepth < 1)
+    benchDepth = 5;
+
+  this.uci.send('info string bench suite', suite.name, 'depth', benchDepth, 'positions', tests.length);
+
+  var start = Date.now();
+  var totalNodes = 0;
+  var solved = 0;
+
+  for (var i = 0; i < tests.length; i++) {
+    if (!this.loadPositionFromFEN(tests[i].fen)) {
+      this.uci.send('info string bench', tests[i].id, 'position parse failed');
+      continue;
+    }
+
+    this.stats.init();
+    this.uci.spec.depth = benchDepth;
+    this.search(this.rootNode, benchDepth, this.board.turn, -INFINITY, INFINITY);
+
+    var bestMoveStr = this.stats.bestMove ? this.board.formatMove(this.stats.bestMove, UCI_FMT) : '0000';
+    var score = this.board.evaluate(this.board.turn);
+    var nodes = this.stats.nodes;
+
+    totalNodes += nodes;
+
+    if (!tests[i].bestMove || tests[i].bestMove == bestMoveStr)
+      solved++;
+
+    this.uci.send('info string bench', tests[i].id, 'best', bestMoveStr, 'score', score, 'nodes', nodes);
+  }
+
+  var elapsed = Date.now() - start;
+  var nps = elapsed > 0 ? ((totalNodes * 1000) / elapsed | 0) : 0;
+  var rate = tests.length ? myround((solved * 1000) / tests.length) / 10 : 0;
+  this.uci.send('info string bench summary suite', suite.name, 'solved', solved + '/' + tests.length, 'rate', rate + '%', 'nodes', totalNodes, 'time', elapsed, 'nps', nps);
+}
+
+//}}}
+//{{{  .runSelfTest
+
+lozChess.prototype.runSelfTest = function () {
+
+  var tests = [
+    { depth: 1, expected: 20 },
+    { depth: 2, expected: 400 },
+    { depth: 3, expected: 8902 },
+    { depth: 4, expected: 197281 }
+  ];
+
+  var passed = 0;
+  var failed = 0;
+
+  for (var i = 0; i < tests.length; i++) {
+    this.uci.spec.board = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+    this.uci.spec.turn = 'w';
+    this.uci.spec.rights = 'KQkq';
+    this.uci.spec.ep = '-';
+    this.uci.spec.hmc = 0;
+    this.uci.spec.fmc = 1;
+    this.uci.spec.moves = [];
+
+    if (!this.position()) {
+      this.uci.send('info string selftest position parse failed');
+      failed++;
+      continue;
+    }
+
+    this.stats.init();
+    var got = this.perftSearch(this.rootNode, tests[i].depth, this.board.turn, 0);
+    if (got === tests[i].expected) {
+      passed++;
+      this.uci.send('info string selftest ok depth', tests[i].depth, 'nodes', got);
+    }
+    else {
+      failed++;
+      this.uci.send('info string selftest fail depth', tests[i].depth, 'got', got, 'expected', tests[i].expected);
+    }
+  }
+
+  var fenOk = this.board.fen().indexOf(' w ') > -1;
+  if (!fenOk) {
+    failed++;
+    this.uci.send('info string selftest fail fen output invalid', this.board.fen());
+  }
+  else {
+    passed++;
+  }
+
+  this.uci.send('info string selftest summary passed', passed, 'failed', failed);
+}
+
+lozChess.prototype.runRegressionTest = function () {
+
+  var passed = 0;
+  var failed = 0;
+
+  this.uci.send('info string regression start tests', REGRESSION_TEST.length);
+
+  for (var i = 0; i < REGRESSION_TEST.length; i++) {
+    var test = REGRESSION_TEST[i];
+    var tolerance = typeof test.tolerance == 'number' ? test.tolerance : 80;
+
+    if (!this.loadPositionFromFEN(test.fen)) {
+      failed++;
+      this.uci.send('info string regression', i + 1, 'fail parse');
+      continue;
+    }
+
+    this.stats.init();
+    var depth = test.depth || 6;
+    this.search(this.rootNode, depth, this.board.turn, -INFINITY, INFINITY);
+
+    var actualMove = this.stats.bestMove ? this.board.formatMove(this.stats.bestMove, UCI_FMT) : '0000';
+    var score = this.board.evaluate(this.board.turn);
+    var expectedScore = typeof test.expectedScore == 'number' ? test.expectedScore : score;
+
+    var movePass = !test.expectedMove || actualMove == test.expectedMove;
+    var scorePass = Math.abs(score - expectedScore) <= tolerance;
+
+    if (movePass || scorePass) {
+      passed++;
+      this.uci.send('info string regression', i + 1, 'pass', 'best', actualMove, 'score', score);
+    }
+    else {
+      failed++;
+      this.uci.send('info string regression', i + 1, 'fail', 'expected', test.expectedMove || 'score<=tol', 'got', actualMove, 'score', score);
+    }
+  }
+
+  var rate = REGRESSION_TEST.length ? myround((passed * 1000) / REGRESSION_TEST.length) / 10 : 0;
+  this.uci.send('info string regression summary passed', passed, 'failed', failed, 'rate', rate + '%');
+}
+
+//}}}
 
 //}}}
 //{{{  lozBoard class
@@ -2472,6 +3009,7 @@ function lozBoard () {
   this.ttType    = new Uint8Array(TTSIZE);
   this.ttDepth   = new Int8Array(TTSIZE);   // allow -ve depths but currently not used for q.
   this.ttMove    = new Uint32Array(TTSIZE); // see constants for structure.
+  this.ttPV      = new Uint32Array(TTSIZE); // shallow PV move cache.
   this.ttEval    = new Int16Array(TTSIZE);
   this.ttScore   = new Int16Array(TTSIZE);
 
@@ -2576,6 +3114,16 @@ function lozBoard () {
     for (var j=0; j < 144; j++)
       this.bHistory[i][j] = 0;
   }
+
+  this.badCaptures = Array(7);
+  for (var i=0; i < 7; i++) {
+    this.badCaptures[i] = Array(144);
+    for (var j=0; j < 144; j++)
+      this.badCaptures[i][j] = 0;
+  }
+
+  this.hasEGTB = false;
+  this.egtbProbe = null;
 }
 
 //}}}
@@ -3625,6 +4173,18 @@ lozBoard.prototype.makeMove = function (node,move) {
   var frCol   = frObj & COLOR_MASK;
   var frColI  = frCol >>> 3;
 
+  node.lastTo = to;
+  node.lastFr = fr;
+  node.lastMovedPiece = frPiece;
+  node.lastCapturedPiece = toObj ? (toObj & PIECE_MASK) : ((move & MOVE_EPTAKE_MASK) ? PAWN : 0);
+
+  if (node.childNode) {
+    node.childNode.lastTo = to;
+    node.childNode.lastFr = fr;
+    node.childNode.lastMovedPiece = frPiece;
+    node.childNode.lastCapturedPiece = node.lastCapturedPiece;
+  }
+
   //{{{  slide piece
   
   b[fr] = NULL;
@@ -4176,6 +4736,134 @@ lozBoard.prototype.unmakePseudoMove = function (move) {
 }
 
 //}}}
+//{{{  .see
+
+lozBoard.prototype.see = function (move) {
+  var fr    = (move & MOVE_FR_MASK) >>> MOVE_FR_BITS;
+  var to    = (move & MOVE_TO_MASK) >>> MOVE_TO_BITS;
+  var toObj = (move & MOVE_TOOBJ_MASK) >>> MOVE_TOOBJ_BITS;
+  var frObj = (move & MOVE_FROBJ_MASK) >>> MOVE_FROBJ_BITS;
+
+  var attackerPiece = frObj & PIECE_MASK;
+  var attackerColor = frObj & COLOR_MASK;
+  var capturedPiece = toObj ? (toObj & PIECE_MASK) : ((move & MOVE_EPTAKE_MASK) ? PAWN : 0);
+
+  if (!attackerPiece || !capturedPiece)
+    return 0;
+
+  var occ = new Uint16Array(this.b);
+  var gains = Array(32);
+  var depth = 0;
+
+  var movedObj = frObj;
+  if (move & MOVE_PROMOTE_MASK) {
+    var promotedPiece = ((move & MOVE_PROMAS_MASK) >>> MOVE_PROMAS_BITS) + 2;
+    movedObj = attackerColor | promotedPiece;
+  }
+
+  occ[fr] = NULL;
+  occ[to] = movedObj;
+
+  if (move & MOVE_EPTAKE_MASK) {
+    var epSq = attackerColor == WHITE ? to + 12 : to - 12;
+    occ[epSq] = NULL;
+  }
+
+  gains[depth] = MATERIAL[capturedPiece];
+  if (move & MOVE_PROMOTE_MASK)
+    gains[depth] += MATERIAL[movedObj & PIECE_MASK] - MATERIAL[PAWN];
+
+  var side = ~attackerColor & COLOR_MASK;
+  var currentPiece = movedObj & PIECE_MASK;
+
+  while (1) {
+    depth++;
+    gains[depth] = MATERIAL[currentPiece] - gains[depth - 1];
+
+    var attackerSqObj = this.seeLeastAttackerSquare(occ, to, side);
+    if (!attackerSqObj.sq)
+      break;
+
+    currentPiece = attackerSqObj.piece;
+    occ[attackerSqObj.sq] = NULL;
+    occ[to] = side | currentPiece;
+    side = ~side & COLOR_MASK;
+  }
+
+  while (--depth)
+    gains[depth - 1] = -Math.max(-gains[depth - 1], gains[depth]);
+
+  return gains[0] | 0;
+}
+
+lozBoard.prototype.seeLeastAttackerSquare = function (occ, to, side) {
+  var sq = 0;
+  var obj = 0;
+
+  if (side == WHITE) {
+    sq = to + 13;
+    if (occ[sq] == W_PAWN) return { sq: sq, piece: PAWN };
+    sq = to + 11;
+    if (occ[sq] == W_PAWN) return { sq: sq, piece: PAWN };
+  }
+  else {
+    sq = to - 13;
+    if (occ[sq] == B_PAWN) return { sq: sq, piece: PAWN };
+    sq = to - 11;
+    if (occ[sq] == B_PAWN) return { sq: sq, piece: PAWN };
+  }
+
+  var knightObj = side | KNIGHT;
+  for (var i = 0; i < KNIGHT_OFFSETS.length; i++) {
+    sq = to + KNIGHT_OFFSETS[i];
+    if (occ[sq] == knightObj)
+      return { sq: sq, piece: KNIGHT };
+  }
+
+  var bishopObj = side | BISHOP;
+  var queenObj = side | QUEEN;
+  for (var i = 0; i < BISHOP_OFFSETS.length; i++) {
+    sq = to;
+    while (1) {
+      sq += BISHOP_OFFSETS[i];
+      obj = occ[sq];
+      if (obj == EDGE)
+        break;
+      if (obj == NULL)
+        continue;
+      if (obj == bishopObj || obj == queenObj)
+        return { sq: sq, piece: obj & PIECE_MASK };
+      break;
+    }
+  }
+
+  var rookObj = side | ROOK;
+  for (var i = 0; i < ROOK_OFFSETS.length; i++) {
+    sq = to;
+    while (1) {
+      sq += ROOK_OFFSETS[i];
+      obj = occ[sq];
+      if (obj == EDGE)
+        break;
+      if (obj == NULL)
+        continue;
+      if (obj == rookObj || obj == queenObj)
+        return { sq: sq, piece: obj & PIECE_MASK };
+      break;
+    }
+  }
+
+  var kingObj = side | KING;
+  for (var i = 0; i < KING_OFFSETS.length; i++) {
+    sq = to + KING_OFFSETS[i];
+    if (occ[sq] == kingObj)
+      return { sq: sq, piece: KING };
+  }
+
+  return { sq: 0, piece: 0 };
+}
+
+//}}}
 //{{{  .isKingAttacked
 
 lozBoard.prototype.isKingAttacked = function(byCol) {
@@ -4375,11 +5063,6 @@ var TENSE_BQ = IS_WQ;
 lozBoard.prototype.evaluate = function (turn) {
 
   //{{{  init feature coefficients
-  //
-  // Removed on release.
-  //
-  
-  
   //}}}
 
   //this.hashCheck(turn);
@@ -4431,8 +5114,6 @@ lozBoard.prototype.evaluate = function (turn) {
   //}}}
   //{{{  draw?
   
-  //todo - lots more here and drawish.
-  
   if (numPieces == 2)                                                                  // K v K.
     return CONTEMPT;
   
@@ -4463,7 +5144,6 @@ lozBoard.prototype.evaluate = function (turn) {
   if (numPieces == 4 && wNumQueens && bNumQueens)                                      // K+Q v K+Q.
     return CONTEMPT;
 	
-	  // FIX: Additional insufficient material cases
   if (numPieces == 3) {
     // K+N vs K or K+B vs K is always draw
     if ((wNumKnights === 1 && !wNumBishops && !bNumKnights && !bNumBishops) ||
@@ -4500,6 +5180,10 @@ lozBoard.prototype.evaluate = function (turn) {
       }
     }
   }
+
+  var egtbScore = this.queryEGTB(turn, 0);
+  if (egtbScore !== null)
+    return egtbScore;
   
   //}}}
 
@@ -4886,6 +5570,7 @@ lozBoard.prototype.evaluate = function (turn) {
   
           pawnsS += PAWN_OFFSET_S + PAWN_MULT_S * PAWN_PASSED[rank];
           pawnsE += PAWN_OFFSET_E + PAWN_MULT_E * PAWN_PASSED[rank];
+          pawnsE += this.evaluatePassedPawnDynamic(sq, WHITE, wKingSq, bKingSq);
           //{{{  king dist
           
           var passKings = PAWN_PASS_KING1 * DIST[bKingSq][sq2] - PAWN_PASS_KING2 * DIST[wKingSq][sq2];
@@ -4966,6 +5651,7 @@ lozBoard.prototype.evaluate = function (turn) {
   
           pawnsS -= PAWN_OFFSET_S + PAWN_MULT_S * PAWN_PASSED[9-rank];
           pawnsE -= PAWN_OFFSET_E + PAWN_MULT_E * PAWN_PASSED[9-rank];
+          pawnsE -= this.evaluatePassedPawnDynamic(sq, BLACK, bKingSq, wKingSq);
   
           //{{{  king dist
           
@@ -5116,6 +5802,13 @@ lozBoard.prototype.evaluate = function (turn) {
     kingS += penalty;
     
     //}}}
+  }
+
+  if (phase >= EPHASE || numPieces <= 12) {
+    kingE += this.evaluateKingProximityToPassedPawns(WHITE, wKingSq, bKingSq);
+    kingE -= this.evaluateKingProximityToPassedPawns(BLACK, bKingSq, wKingSq);
+    kingE += this.evaluateKingCenterActivity(wKingSq);
+    kingE -= this.evaluateKingCenterActivity(bKingSq);
   }
   
   
@@ -5956,10 +6649,8 @@ else if (frObj == B_ROOK) {
 //
 // Assumes eval has been initialised to INFINITY and that ttGet() has been called.
 //
-// FIX: Moved counters inside function scope to prevent global pollution
 lozBoard.prototype.getEval = function (eval,node,turn) {
-  
-  // FIX: Static counters using closure or properties instead of globals
+
   if (typeof this._evalStats === 'undefined') {
     this._evalStats = { TOT: 0, TOT1: 0, TOT2: 0 };
   }
@@ -5993,10 +6684,154 @@ lozBoard.prototype.rand32 = function () {
     return randoms[nextRandom++];
   }
   
-  // FIX: Fallback to LCG (Linear Congruential Generator) when randoms exhausted
-  // Uses constants from Numerical Recipes (a=1664525, c=1013904223)
   this._prngSeed = (this._prngSeed * 1664525 + 1013904223) | 0;
   return this._prngSeed;
+}
+
+//}}}
+//{{{  .isPassedPawn
+
+lozBoard.prototype.isPassedPawn = function (sq, side) {
+  var b = this.b;
+  var step = side == WHITE ? -12 : 12;
+  var enemyPawn = side == WHITE ? B_PAWN : W_PAWN;
+  var scan = sq + step;
+
+  while (b[scan] != EDGE) {
+    if (b[scan] == enemyPawn || b[scan - 1] == enemyPawn || b[scan + 1] == enemyPawn)
+      return 0;
+    scan += step;
+  }
+
+  return 1;
+}
+
+//}}}
+//{{{  .evaluatePassedPawnDynamic
+
+lozBoard.prototype.evaluatePassedPawnDynamic = function (sq, side, myKingSq, oppKingSq) {
+  if (!this.isPassedPawn(sq, side))
+    return 0;
+
+  var rank = RANK[sq];
+  var file = FILE[sq];
+  var promoteSq = side == WHITE ? W_PROMOTE_SQ[file] : B_PROMOTE_SQ[file];
+  var distToProm = side == WHITE ? (rank - 1) : (8 - rank);
+  var bonus = (7 - distToProm) * 12;
+
+  var myDist = DIST[myKingSq][promoteSq];
+  var oppDist = DIST[oppKingSq][promoteSq];
+  bonus += (oppDist - myDist) * 6;
+
+  var support = 0;
+  if (side == WHITE) {
+    support += IS_WP[this.b[sq + 11]];
+    support += IS_WP[this.b[sq + 13]];
+  }
+  else {
+    support += IS_BP[this.b[sq - 11]];
+    support += IS_BP[this.b[sq - 13]];
+  }
+
+  bonus += support * 10;
+  return bonus;
+}
+
+//}}}
+//{{{  .evaluateKingProximityToPassedPawns
+
+lozBoard.prototype.evaluateKingProximityToPassedPawns = function (side, kingSq, oppKingSq) {
+  var list = side == WHITE ? this.wList : this.bList;
+  var pawnObj = side == WHITE ? W_PAWN : B_PAWN;
+  var bonus = 0;
+
+  for (var i = 0; i < list.length; i++) {
+    var sq = list[i];
+    if (!sq || this.b[sq] != pawnObj)
+      continue;
+    if (!this.isPassedPawn(sq, side))
+      continue;
+
+    var myDist = DIST[kingSq][sq];
+    var oppDist = DIST[oppKingSq][sq];
+    bonus += (oppDist - myDist) * 4;
+  }
+
+  return bonus;
+}
+
+//}}}
+//{{{  .evaluateKingCenterActivity
+
+lozBoard.prototype.evaluateKingCenterActivity = function (kingSq) {
+  var rank = RANK[kingSq];
+  var file = FILE[kingSq];
+
+  if (rank >= 3 && rank <= 6 && file >= 3 && file <= 6)
+    return 16;
+  if (rank >= 2 && rank <= 7 && file >= 2 && file <= 7)
+    return 6;
+  return 0;
+}
+
+//}}}
+//{{{  .setEGTBProbe
+
+lozBoard.prototype.setEGTBProbe = function (probeFn) {
+  this.egtbProbe = typeof probeFn == 'function' ? probeFn : null;
+  this.hasEGTB = !!this.egtbProbe;
+}
+
+//}}}
+//{{{  .wdlToScore
+
+lozBoard.prototype.wdlToScore = function (wdl, dtz, ply) {
+  var p = ply || 0;
+  var d = Math.max(0, dtz || 0);
+
+  if (wdl >= 2) return MATE - p - d;
+  if (wdl <= -2) return -MATE + p + d;
+  if (wdl == 1) return VALUE_PAWN;
+  if (wdl == -1) return -VALUE_PAWN;
+  return CONTEMPT;
+}
+
+//}}}
+//{{{  .queryEGTB
+
+lozBoard.prototype.queryEGTB = function (turn, ply) {
+  var opts = this.lozza && this.lozza.uci ? this.lozza.uci.options : null;
+  var enabled = opts && ('' + (opts.UseEGTB || 'off')).toLowerCase() === 'on';
+
+  if (!enabled || !this.hasEGTB || !this.egtbProbe)
+    return null;
+
+  if ((this.wCount + this.bCount) > 5)
+    return null;
+
+  try {
+    var res = this.egtbProbe(this.fen(turn));
+    if (res === null || typeof res === 'undefined')
+      return null;
+
+    var score = null;
+    if (typeof res === 'number')
+      score = res | 0;
+    else if (typeof res.score === 'number')
+      score = res.score | 0;
+    else if (typeof res.wdl === 'number')
+      score = this.wdlToScore(res.wdl, res.dtz || 0, ply || 0);
+
+    if (score !== null) {
+      this.lozza.uci.send('info string tbhit', 1);
+      return score;
+    }
+  }
+  catch (e) {
+    return null;
+  }
+
+  return null;
 }
 
 //}}}
@@ -6007,30 +6842,24 @@ lozBoard.prototype.ttPut = function (type,depth,score,move,ply,alpha,beta,eval) 
   var idx = this.loHash & TTMASK;
   var existingType = this.ttType[idx];
 
-  // FIX: Depth-preferred replacement strategy
-  // Don't overwrite deeper entries unless the new entry is exact and old is bound
   if (existingType != TT_EMPTY) {
     var existingDepth = this.ttDepth[idx];
     var existingLo = this.ttLo[idx];
     var existingHi = this.ttHi[idx];
     
-    // If same position (hash collision check)
     if (existingLo === this.loHash && existingHi === this.hiHash) {
-      // Always update if new depth is greater or equal with better information
       if (depth < existingDepth && type !== TT_EXACT) {
-        return; // Keep deeper entry
+        return;
       }
     } else {
-      // Different position - use depth-based replacement
-      // Only replace if new depth is reasonably close or greater (aging)
       if (existingDepth > depth + 2) {
-        return; // Significantly deeper entry exists for different position
+        return;
       }
     }
   } else {
     this.hashUsed++;
   }
-    // FIX: Adjust mate scores for storage (ply-adjusted)
+
   if (score <= -MINMATE && score >= -MATE)
     score -= ply;
 
@@ -6043,6 +6872,7 @@ lozBoard.prototype.ttPut = function (type,depth,score,move,ply,alpha,beta,eval) 
   this.ttDepth[idx] = depth;
   this.ttScore[idx] = score;
   this.ttMove[idx]  = move;
+  this.ttPV[idx]    = move;
   this.ttEval[idx]  = eval;
 }
 
@@ -6055,6 +6885,7 @@ lozBoard.prototype.ttGet = function (node, depth, alpha, beta) {
   var type  = this.ttType[idx];
 
   node.hashMove = 0;
+  node.hashPVMove = 0;
   node.hashEval = INFINITY;
 
   if (type == TT_EMPTY) {
@@ -6074,6 +6905,7 @@ lozBoard.prototype.ttGet = function (node, depth, alpha, beta) {
   //
 
   node.hashMove = this.ttMove[idx];
+  node.hashPVMove = this.ttPV[idx];
   node.hashEval = this.ttEval[idx];
 
   if (this.ttDepth[idx] < depth) {
@@ -6111,7 +6943,7 @@ lozBoard.prototype.ttGetMove = function (node) {
   var idx = this.loHash & TTMASK;
 
   if (this.ttType[idx] != TT_EMPTY && this.ttLo[idx] == this.loHash && this.ttHi[idx] == this.hiHash)
-    return this.ttMove[idx];
+    return this.ttPV[idx] || this.ttMove[idx];
 
   return 0;
 }
@@ -6128,6 +6960,7 @@ lozBoard.prototype.ttInit = function () {
   this.phiHash = 0;
 
   this.ttType.fill(TT_EMPTY);
+  this.ttPV.fill(0);
   this.pttFlags.fill(TT_EMPTY);
 
   this.hashUsed = 0;
@@ -6196,6 +7029,9 @@ lozBoard.prototype.hashCheck = function (turn) {
 
 lozBoard.prototype.fen = function (turn) {
 
+  if (typeof turn === 'undefined')
+    turn = this.turn;
+
   var fen = '';
   var n   = 0;
 
@@ -6248,6 +7084,57 @@ lozBoard.prototype.fen = function (turn) {
   fen += ' 0 1';
 
   return fen;
+}
+
+//}}}
+//{{{  .fenKey
+
+lozBoard.prototype.fenKey = function () {
+
+  return this.fen(this.turn).split(' ').slice(0, 4).join(' ');
+}
+
+//}}}
+//{{{  .isLegalMoveStr
+
+lozBoard.prototype.isLegalMoveStr = function (moveStr) {
+
+  var node = lozza.rootNode;
+  var move = 0;
+  var nextTurn = ~this.turn & COLOR_MASK;
+
+  node.cache();
+
+  this.genMoves(node, this.turn);
+
+  while (move = node.getNextMove()) {
+    this.makeMove(node, move);
+
+    var legal = !this.isKingAttacked(nextTurn);
+    var moveUci = legal ? this.formatMove(move, UCI_FMT) : '';
+
+    this.unmakeMove(node, move);
+    node.uncache();
+
+    if (legal && (moveUci === moveStr || moveUci === (moveStr + 'q')))
+      return true;
+  }
+
+  return false;
+}
+
+//}}}
+//{{{  .isPseudoLegalMoveSafe
+
+lozBoard.prototype.isPseudoLegalMoveSafe = function (node, move, turn) {
+
+  var nextTurn = ~turn & COLOR_MASK;
+  node.cache();
+  this.makeMove(node, move);
+  var legal = !this.isKingAttacked(nextTurn);
+  this.unmakeMove(node, move);
+  node.uncache();
+  return legal;
 }
 
 //}}}
@@ -6422,6 +7309,9 @@ function lozNode (parentNode) {
   this.toZ = 0;                 // move to square index (captures) to piece list - cached during make|unmakeMove.
   this.frZ = 0;                 // move from square index to piece list          - ditto.
   this.epZ = 0;                 // captured ep pawn index to piece list          - ditto.
+  this.lastTo = 0;              // destination square of move that led to this node.
+  this.lastMovedPiece = 0;
+  this.lastCapturedPiece = 0;
 }
 
 //}}}
@@ -6444,6 +7334,9 @@ lozNode.prototype.init = function() {
   this.toZ = 0;
   this.frZ = 0;
   this.epZ = 0;
+  this.lastTo = 0;
+  this.lastMovedPiece = 0;
+  this.lastCapturedPiece = 0;
 }
 
 //}}}
@@ -6516,6 +7409,46 @@ lozNode.prototype.getNextMove = function () {
   this.sortedIndex++;
 
   return maxM;
+}
+
+//}}}
+//{{{  .counterMoveBonus
+
+lozNode.prototype.counterMoveBonus = function (move) {
+
+  if (!this.parentNode || !this.parentNode.lastTo)
+    return 0;
+
+  var fr = (move & MOVE_FR_MASK) >>> MOVE_FR_BITS;
+  if (counterMoves[this.parentNode.lastTo][fr] == move)
+    return BASE_COUNTERMOVE;
+
+  return 0;
+}
+
+//}}}
+//{{{  .continuationBonus
+
+lozNode.prototype.continuationBonus = function (move) {
+
+  var frObj = (move & MOVE_FROBJ_MASK) >>> MOVE_FROBJ_BITS;
+  var frPiece = frObj & PIECE_MASK;
+  var to = (move & MOVE_TO_MASK) >>> MOVE_TO_BITS;
+
+  if (frPiece < PAWN || frPiece > KING)
+    return 0;
+
+  var bonus = 0;
+
+  if (this.parentNode && this.parentNode.lastMovedPiece >= PAWN && this.parentNode.lastMovedPiece <= KING) {
+    bonus += continuationHistory[0][frPiece - 1][this.parentNode.lastMovedPiece - 1][to] | 0;
+  }
+
+  if (this.grandparentNode && this.grandparentNode.lastMovedPiece >= PAWN && this.grandparentNode.lastMovedPiece <= KING) {
+    bonus += continuationHistory[1][frPiece - 1][this.grandparentNode.lastMovedPiece - 1][to] | 0;
+  }
+
+  return bonus;
 }
 
 //}}}
@@ -6621,14 +7554,15 @@ lozNode.prototype.addCapture = function (move) {
 
   else {
 
+    var seeScore = this.board.see(move);
     var victim = RANK_VECTOR[((move & MOVE_TOOBJ_MASK) >>> MOVE_TOOBJ_BITS) & PIECE_MASK];
     var attack = RANK_VECTOR[((move & MOVE_FROBJ_MASK) >>> MOVE_FROBJ_BITS) & PIECE_MASK];
 
-    if (victim > attack)
-      this.ranks[n] = BASE_GOODTAKES + victim * 64 - attack;
+    if (seeScore > 0)
+      this.ranks[n] = BASE_GOODTAKES + 1024 + seeScore + victim * 16 - attack;
 
-    else if (victim == attack)
-      this.ranks[n] = BASE_EVENTAKES + victim * 64 - attack;
+    else if (seeScore == 0)
+      this.ranks[n] = BASE_EVENTAKES + victim * 16 - attack;
 
     else {
 
@@ -6648,7 +7582,7 @@ lozNode.prototype.addCapture = function (move) {
         this.ranks[n] = BASE_GPKILLERS;
 
       else
-        this.ranks[n] = BASE_BADTAKES  + victim * 64 - attack;
+        this.ranks[n] = BASE_BADTAKES + seeScore + victim * 16 - attack;
     }
   }
 }
@@ -6720,17 +7654,18 @@ lozNode.prototype.addQMove = function (move) {
     this.ranks[n] = BASE_EPTAKES;
 
   else {
+    var seeScore = this.board.see(move);
     var victim = RANK_VECTOR[((move & MOVE_TOOBJ_MASK) >>> MOVE_TOOBJ_BITS) & PIECE_MASK];
     var attack = RANK_VECTOR[((move & MOVE_FROBJ_MASK) >>> MOVE_FROBJ_BITS) & PIECE_MASK];
 
-    if (victim > attack)
-      this.ranks[n] = BASE_GOODTAKES + victim * 64 - attack;
+    if (seeScore > 0)
+      this.ranks[n] = BASE_GOODTAKES + 1024 + seeScore + victim * 16 - attack;
 
-    else if (victim == attack)
-      this.ranks[n] = BASE_EVENTAKES + victim * 64 - attack;
+    else if (seeScore == 0)
+      this.ranks[n] = BASE_EVENTAKES + victim * 16 - attack;
 
     else
-      this.ranks[n] = BASE_BADTAKES + victim * 64 - attack;
+      this.ranks[n] = BASE_BADTAKES + seeScore + victim * 16 - attack;
   }
 }
 
@@ -6855,7 +7790,7 @@ lozStats.prototype.checkTime = function () {
 lozStats.prototype.nodeStr = function () {
 
   var tim = Date.now() - this.startTime;
-  var nps = (this.nodes * 1000) / tim | 0;
+  var nps = tim > 0 ? ((this.nodes * 1000) / tim | 0) : 0;
 
   return 'nodes ' + this.nodes + ' time ' + tim + ' nps ' + nps;
 }
@@ -6866,7 +7801,7 @@ lozStats.prototype.nodeStr = function () {
 lozStats.prototype.update = function () {
 
   var tim = Date.now() - this.startTime;
-  var nps = (this.nodes * 1000) / tim | 0;
+  var nps = tim > 0 ? ((this.nodes * 1000) / tim | 0) : 0;
 
   lozza.uci.send('info',this.nodeStr());
 }
@@ -6898,11 +7833,18 @@ function lozUCI () {
   this.debugging = false;
   this.nodefs    = 0;
   this.numMoves  = 0;
+  this.pondering = false;
+  this.ponderMove = '';
+  this.ponderResultMove = '';
+  this.ponderResultPonder = '';
 
   this.options = {
     MultiPV: 1,
+    Ponder: 'off',
+    SkillLevel: 20,
+    Contempt: 0,
+    UseEGTB: 'off',
     HumanMode: 'off',
-    HumanSkill: 20,
     HumanNoise: 0,
     HumanStyle: 'balanced',
     ShowWDL: 'off',
@@ -7067,6 +8009,14 @@ onmessage = function(e) {
 
     case 'position':
       //{{{  position
+
+      if (uci.pondering) {
+        lozza.stats.timeOut = 1;
+        uci.pondering = false;
+      }
+      uci.ponderResultMove = '';
+      uci.ponderResultPonder = '';
+      uci.ponderMove = '';
       
       uci.spec.board    = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
       uci.spec.turn     = 'w';
@@ -7120,6 +8070,7 @@ onmessage = function(e) {
       uci.spec.wInc      = uci.getInt('winc',0);
       uci.spec.bInc      = uci.getInt('binc',0);
       uci.spec.movesToGo = uci.getInt('movestogo',0);
+      uci.spec.ponder    = uci.tokens.indexOf('ponder') !== -1;
       
       uci.numMoves++;
       
@@ -7133,6 +8084,12 @@ onmessage = function(e) {
       //{{{  ucinewgame
       
       lozza.newGameInit();
+      uci.options.Contempt = 0;
+      CONTEMPT = 0;
+      uci.pondering = false;
+      uci.ponderMove = '';
+      uci.ponderResultMove = '';
+      uci.ponderResultPonder = '';
       
       break;
       
@@ -7158,9 +8115,39 @@ onmessage = function(e) {
       //
       
       lozza.stats.timeOut = 1;
+      if (uci.pondering)
+        uci.pondering = false;
+
+      if (uci.ponderResultMove) {
+        if (uci.ponderResultPonder)
+          uci.send('bestmove', uci.ponderResultMove, 'ponder', uci.ponderResultPonder);
+        else
+          uci.send('bestmove', uci.ponderResultMove);
+        uci.ponderResultMove = '';
+        uci.ponderResultPonder = '';
+      }
       
       break;
       
+      //}}}
+
+    case 'ponderhit':
+      //{{{  ponderhit
+
+      uci.pondering = false;
+      lozza.stats.startTime = Date.now();
+
+      if (uci.ponderResultMove) {
+        if (uci.ponderResultPonder)
+          uci.send('bestmove', uci.ponderResultMove, 'ponder', uci.ponderResultPonder);
+        else
+          uci.send('bestmove', uci.ponderResultMove);
+        uci.ponderResultMove = '';
+        uci.ponderResultPonder = '';
+      }
+
+      break;
+
       //}}}
 
     case 'debug':
@@ -7180,9 +8167,12 @@ onmessage = function(e) {
       
       uci.send('id name Lozza',BUILD);
       uci.send('id author Colin Jenkins');
+      uci.send('option name Ponder type check default false');
       uci.send('option name MultiPV type spin default 1 min 1 max 5');
+      uci.send('option name SkillLevel type spin default 20 min 0 max 20');
+      uci.send('option name Contempt type spin default 0 min -200 max 200');
+      uci.send('option name UseEGTB type check default false');
       uci.send('option name HumanMode type check default false');
-      uci.send('option name HumanSkill type spin default 20 min 0 max 20');
       uci.send('option name HumanNoise type spin default 0 min 0 max 100');
       uci.send('option name HumanStyle type combo default balanced var balanced var aggressive var tactical var defensive var positional');
       uci.send('option name ShowWDL type check default false');
@@ -7208,6 +8198,33 @@ onmessage = function(e) {
       
       var key = uci.getStr('name');
       var val = uci.getStr('value');
+
+      if (typeof val === 'undefined')
+        val = 'on';
+
+      if (val === 'true')
+        val = 'on';
+      else if (val === 'false')
+        val = 'off';
+
+      if (key) {
+        var map = {
+          multipv: 'MultiPV',
+          ponder: 'Ponder',
+          skilllevel: 'SkillLevel',
+          contempt: 'Contempt',
+          useegtb: 'UseEGTB',
+          humanmode: 'HumanMode',
+          humannoise: 'HumanNoise',
+          humanstyle: 'HumanStyle',
+          showwdl: 'ShowWDL',
+          showevalbar: 'ShowEvalBar',
+          showacpl: 'ShowACPL'
+        };
+        var mapped = map[(key + '').toLowerCase()];
+        if (mapped)
+          key = mapped;
+      }
       
       uci.options[key] = val;
       
@@ -7244,6 +8261,42 @@ onmessage = function(e) {
       
       break;
       
+      //}}}
+
+    case 'bench':
+      //{{{  bench
+
+      var benchSuite = uci.getStr('suite', 'core');
+      var benchDepth = uci.getInt('depth', 5);
+
+      if (benchSuite == 'core' && uci.tokens.length > 1) {
+        var maybeSuite = (uci.tokens[1] || '').toLowerCase();
+        if (maybeSuite == 'lct' || maybeSuite == 'sts' || maybeSuite == 'core')
+          benchSuite = maybeSuite;
+      }
+
+      lozza.runBench(benchSuite, benchDepth);
+
+      break;
+
+      //}}}
+
+    case 'regressiontest':
+      //{{{  regressiontest
+
+      lozza.runRegressionTest();
+
+      break;
+
+      //}}}
+
+    case 'selftest':
+      //{{{  selftest
+
+      lozza.runSelfTest();
+
+      break;
+
       //}}}
 
     case 'eval':
@@ -7312,9 +8365,4 @@ if (lozzaHost == HOST_NODEJS) {
 
 //}}}
 //{{{  sanity checks
-//
-// Removed on release.
-//
-
-
 //}}}
