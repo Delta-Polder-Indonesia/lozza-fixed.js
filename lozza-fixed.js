@@ -1984,9 +1984,10 @@ lozChess.prototype.alphabeta = function (node, depth, turn, alpha, beta, nullOK,
   }
   
   //}}}
-  //{{{  check for draws
+    //{{{  check for draws
   
-  if (board.repHi - board.repLo > 100)
+  // FIX: Changed from > 100 to >= 100 (50 moves = 100 plies)
+  if (board.repHi - board.repLo >= 100)
     return CONTEMPT;
   
   for (var i=board.repHi-5; i >= board.repLo; i -= 2) {
@@ -2579,6 +2580,11 @@ function lozBoard () {
     this.loEP[i] = this.rand32();
     this.hiEP[i] = this.rand32();
   }
+  
+  //}}}
+  
+    // FIX: Initialize PRNG seed for fallback random generator
+  this._prngSeed = Date.now() | 0x5DEECE66D; // LCG seed initialization
   
   //}}}
 
@@ -4497,6 +4503,30 @@ lozBoard.prototype.evaluate = function (turn) {
   
   if (numPieces == 4 && wNumQueens && bNumQueens)                                      // K+Q v K+Q.
     return CONTEMPT;
+	
+	  // FIX: Additional insufficient material cases
+  if (numPieces == 3) {
+    // K+N vs K or K+B vs K is always draw
+    if ((wNumKnights === 1 && !wNumBishops && !bNumKnights && !bNumBishops) ||
+        (bNumKnights === 1 && !wNumBishops && !wNumKnights && !bNumBishops) ||
+        (wNumBishops === 1 && !wNumKnights && !bNumKnights && !bNumBishops) ||
+        (bNumBishops === 1 && !wNumKnights && !wNumKnights && !wNumBishops)) {
+      return CONTEMPT;
+    }
+  }
+  
+  if (numPieces == 4) {
+    // K+B vs K+B (same color bishops)
+    if (wNumBishops === 1 && bNumBishops === 1 && !wNumKnights && !bNumKnights) {
+      var wBishopSq = this.wList.find(sq => sq && (this.b[sq] & PIECE_MASK) === BISHOP);
+      var bBishopSq = this.bList.find(sq => sq && (this.b[sq] & PIECE_MASK) === BISHOP);
+      if (wBishopSq && bBishopSq) {
+        var wColor = WSQUARE[wBishopSq];
+        var bColor = WSQUARE[bBishopSq]; // Same color = both on white or both on black squares
+        if (wColor === bColor) return CONTEMPT;
+      }
+    }
+  }
   
   //}}}
 
@@ -5953,28 +5983,31 @@ lozBoard.prototype.evaluate = function (turn) {
 //
 // Assumes eval has been initialised to INFINITY and that ttGet() has been called.
 //
-var TOT = 0;
-var TOT1 = 0;
-var TOT2 = 0;
-
+// FIX: Moved counters inside function scope to prevent global pollution
 lozBoard.prototype.getEval = function (eval,node,turn) {
+  
+  // FIX: Static counters using closure or properties instead of globals
+  if (typeof this._evalStats === 'undefined') {
+    this._evalStats = { TOT: 0, TOT1: 0, TOT2: 0 };
+  }
+  var stats = this._evalStats;
 
-  if (eval != INFINITY) {
+      if (eval != INFINITY) {
     return eval;                   // We've already got it.
   }
 
-  TOT++;
+  stats.TOT++;
 
-  if ((TOT % 1000000) == 0) {
-    //console.log(TOT1/TOT,TOT2/TOT);
+  if ((stats.TOT % 1000000) == 0) {
+    //console.log(stats.TOT1/stats.TOT,stats.TOT2/stats.TOT);
   }
 
   if (node.hashEval != INFINITY) {
-    TOT1++;
+    stats.TOT1++;
     return node.hashEval;          // Use the TT value
   }
 
-  TOT2++;
+  stats.TOT2++;
   return this.evaluate(turn);      // Fallback on calulating it.
 }
 
@@ -5982,16 +6015,16 @@ lozBoard.prototype.getEval = function (eval,node,turn) {
 //{{{  .rand32
 
 lozBoard.prototype.rand32 = function () {
-
-  var r = randoms[nextRandom];
-
-  nextRandom++;
-
-  if (nextRandom == 4000) {
-    lozza.uci.send('info','run out of randoms');
+  
+  // FIX: Check bounds before accessing array
+  if (nextRandom < 4000) {
+    return randoms[nextRandom++];
   }
-
-  return r;
+  
+  // FIX: Fallback to LCG (Linear Congruential Generator) when randoms exhausted
+  // Uses constants from Numerical Recipes (a=1664525, c=1013904223)
+  this._prngSeed = (this._prngSeed * 1664525 + 1013904223) | 0;
+  return this._prngSeed;
 }
 
 //}}}
@@ -6000,14 +6033,32 @@ lozBoard.prototype.rand32 = function () {
 lozBoard.prototype.ttPut = function (type,depth,score,move,ply,alpha,beta,eval) {
 
   var idx = this.loHash & TTMASK;
+  var existingType = this.ttType[idx];
 
-  //if (this.ttType[idx] == TT_EXACT && this.loHash == this.ttLo[idx] && this.hiHash == this.ttHi[idx] && this.ttDepth[idx] > depth && this.ttScore[idx] > alpha && this.ttScore[idx] < beta) {
-    //return;
-  //}
-
-  if (this.ttType[idx] == TT_EMPTY)
+  // FIX: Depth-preferred replacement strategy
+  // Don't overwrite deeper entries unless the new entry is exact and old is bound
+  if (existingType != TT_EMPTY) {
+    var existingDepth = this.ttDepth[idx];
+    var existingLo = this.ttLo[idx];
+    var existingHi = this.ttHi[idx];
+    
+    // If same position (hash collision check)
+    if (existingLo === this.loHash && existingHi === this.hiHash) {
+      // Always update if new depth is greater or equal with better information
+      if (depth < existingDepth && type !== TT_EXACT) {
+        return; // Keep deeper entry
+      }
+    } else {
+      // Different position - use depth-based replacement
+      // Only replace if new depth is reasonably close or greater (aging)
+      if (existingDepth > depth + 2) {
+        return; // Significantly deeper entry exists for different position
+      }
+    }
+  } else {
     this.hashUsed++;
-
+  }
+    // FIX: Adjust mate scores for storage (ply-adjusted)
   if (score <= -MINMATE && score >= -MATE)
     score -= ply;
 
