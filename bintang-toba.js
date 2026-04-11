@@ -107,6 +107,7 @@
       this.options = {
         Hash: 16,
         MultiPV: 1,
+        Threads: 1,
       };
 
       this.stop = false;
@@ -130,6 +131,7 @@
       this.bestMove = null;
       this.rootPV = [];
       this.hashStack = [];
+      this.nullStack = [];
 
       this.zobrist = this.initZobrist();
       this.hash = 0;
@@ -588,6 +590,48 @@
       });
     }
 
+    hasNonPawnMaterial(color) {
+      for (let sq = 0; sq < 128; sq++) {
+        if (!onBoard(sq)) { sq += 7; continue; }
+        const p = this.board[sq];
+        if (!p) continue;
+        if (color === WHITE && !isWhite(p)) continue;
+        if (color === BLACK && !isBlack(p)) continue;
+        if (p !== WP && p !== BP && p !== WK && p !== BK) return true;
+      }
+      return false;
+    }
+
+    isQuietMove(m) {
+      return !(m.flags & (FLAG_CAPTURE | FLAG_PROMO | FLAG_EP));
+    }
+
+    makeNullMove() {
+      this.nullStack.push({
+        ep: this.ep,
+        halfmove: this.halfmove,
+        fullmove: this.fullmove,
+        hash: this.hash,
+      });
+      this.ep = -1;
+      this.halfmove++;
+      if (this.side === BLACK) this.fullmove++;
+      this.side = opponent(this.side);
+      this.recomputeHash();
+      this.hashStack.push(this.hash);
+    }
+
+    undoNullMove() {
+      const st = this.nullStack.pop();
+      if (!st) return;
+      this.side = opponent(this.side);
+      this.ep = st.ep;
+      this.halfmove = st.halfmove;
+      this.fullmove = st.fullmove;
+      this.hash = st.hash;
+      this.hashStack.pop();
+    }
+
     qsearch(alpha, beta, ply) {
       if (this.stop) return alpha;
       if (Date.now() - this.startTime > this.moveTime) {
@@ -628,7 +672,7 @@
       this.tt.set(this.hash, { depth, score, flag, best: best ? this.moveToUci(best) : '0000' });
     }
 
-    negamax(depth, alpha, beta, ply) {
+    negamax(depth, alpha, beta, ply, allowNull = true) {
       if (this.stop) return 0;
       if (Date.now() - this.startTime > this.moveTime) {
         this.stop = true;
@@ -643,6 +687,16 @@
       const inChk = this.inCheck(this.side);
       if (depth <= 0) return this.qsearch(alpha, beta, ply);
 
+      // Null-move pruning (disabled in check/endgame-like material).
+      if (allowNull && depth >= 3 && !inChk && this.hasNonPawnMaterial(this.side)) {
+        const R = depth >= 6 ? 3 : 2;
+        this.makeNullMove();
+        const score = -this.negamax(depth - 1 - R, -beta, -beta + 1, ply + 1, false);
+        this.undoNullMove();
+        if (this.stop) return 0;
+        if (score >= beta) return beta;
+      }
+
       const ttScore = this.probeTT(depth, alpha, beta);
       if (ttScore !== null) return ttScore;
 
@@ -653,9 +707,20 @@
       const alpha0 = alpha;
       let best = null;
 
+      let moveIndex = 0;
       for (const m of moves) {
+        moveIndex++;
         this.makeMove(m);
-        const score = -this.negamax(depth - 1, -beta, -alpha, ply + 1);
+        let score;
+        const doLMR = depth >= 3 && moveIndex > 4 && !inChk && this.isQuietMove(m);
+        if (doLMR) {
+          score = -this.negamax(depth - 2, -alpha - 1, -alpha, ply + 1, true);
+          if (!this.stop && score > alpha) {
+            score = -this.negamax(depth - 1, -beta, -alpha, ply + 1, true);
+          }
+        } else {
+          score = -this.negamax(depth - 1, -beta, -alpha, ply + 1, true);
+        }
         this.undoMove();
         if (this.stop) return 0;
         if (score > alpha) {
@@ -693,7 +758,10 @@
     findMoveByUci(uci) {
       const moves = this.genMoves(false);
       for (const m of moves) {
-        if (this.moveToUci(m) === uci) return m;
+        const mu = this.moveToUci(m);
+        if (mu === uci) return m;
+        // Some GUIs may send promotion without the trailing piece letter.
+        if ((m.flags & FLAG_PROMO) && uci.length === 4 && mu.slice(0, 4) === uci) return m;
       }
       return null;
     }
@@ -710,22 +778,46 @@
       const multiPV = Math.max(1, Math.min(8, (spec.multiPV || this.options.MultiPV) | 0));
 
       let best = null;
-      let bestScore = -INF;
+      let bestScore = 0;
 
       for (let d = 1; d <= depthLimit; d++) {
         const rootMoves = this.genMoves(false);
         this.orderMoves(rootMoves);
         const scored = [];
 
-        for (const m of rootMoves) {
-          if (this.stop) break;
-          this.makeMove(m);
-          const score = -this.negamax(d - 1, -INF, INF, 1);
-          this.undoMove();
-          scored.push({ m, score });
+        // Aspiration window from previous iteration score.
+        let asp = d > 1 ? 35 : INF;
+        let alpha = d > 1 ? Math.max(-INF, bestScore - asp) : -INF;
+        let beta = d > 1 ? Math.min(INF, bestScore + asp) : INF;
+
+        while (true) {
+          scored.length = 0;
+          for (const m of rootMoves) {
+            if (this.stop) break;
+            this.makeMove(m);
+            const score = -this.negamax(d - 1, -beta, -alpha, 1, true);
+            this.undoMove();
+            scored.push({ m, score });
+          }
+
+          scored.sort((a, b) => b.score - a.score);
+          if (!scored.length) break;
+          const s = scored[0].score;
+          if (s <= alpha && alpha > -INF + 1) {
+            asp = Math.min(400, asp * 2);
+            alpha = Math.max(-INF, s - asp);
+            beta = Math.min(INF, s + asp);
+            continue;
+          }
+          if (s >= beta && beta < INF - 1) {
+            asp = Math.min(400, asp * 2);
+            alpha = Math.max(-INF, s - asp);
+            beta = Math.min(INF, s + asp);
+            continue;
+          }
+          break;
         }
 
-        scored.sort((a, b) => b.score - a.score);
         if (scored.length) {
           best = scored[0].m;
           bestScore = scored[0].score;
@@ -802,10 +894,12 @@
         binc: 0,
         movestogo: 30,
         multiPV: 0,
+        infinite: false,
       };
       for (let i = 1; i < tokens.length; i++) {
         const t = tokens[i];
         const v = Number(tokens[i + 1]);
+        if (t === 'infinite') spec.infinite = true;
         if (t === 'depth') spec.depth = v;
         if (t === 'movetime') spec.moveTime = v;
         if (t === 'wtime') spec.wtime = v;
@@ -815,6 +909,8 @@
         if (t === 'movestogo') spec.movestogo = v;
         if (t === 'multipv') spec.multiPV = v;
       }
+      spec.depth = Math.max(1, Math.min(64, spec.depth || 10));
+      if (spec.infinite && !spec.moveTime) spec.moveTime = 24 * 60 * 60 * 1000;
       this.search(spec);
     }
 
@@ -832,6 +928,9 @@
       if (name === 'MultiPV') {
         this.options.MultiPV = Math.max(1, Math.min(8, Number(value) || 1));
       }
+      if (name === 'Threads') {
+        this.options.Threads = 1; // Web worker build is single-threaded.
+      }
     }
 
     command(line) {
@@ -844,7 +943,9 @@
         this.send('id author', this.author);
         this.send('option name Hash type spin default 16 min 1 max 512');
         this.send('option name MultiPV type spin default 1 min 1 max 8');
+        this.send('option name Threads type spin default 1 min 1 max 1');
         this.send('option name Ponder type check default false');
+        this.send('option name UCI_Chess960 type check default false');
         this.send('uciok');
         return;
       }
