@@ -1772,16 +1772,12 @@ lozChess.prototype.go = function() {
   var candidates = this.collectRootCandidates(board.turn, candidateCount);
 
   if (!candidates.length && this.stats.bestMove) {
-    candidates.push({move: this.stats.bestMove, rawScore: bestScore, pickScore: bestScore, tacticalDrop: 0, aggression: 0});
+    candidates.push({move: this.stats.bestMove, rawScore: bestScore, aggression: 0});
   }
 
   var selected = null;
 
-  var forcingLine = Math.abs(bestScore) >= (MINMATE - 2);
-
-  var allowHumanStyle = spec.humanStyle && !forcingLine && this.stats.ply >= 10;
-
-  if (allowHumanStyle)
+  if (spec.humanStyle)
     selected = this.pickHumanMove(candidates, bestScore, spec);
 
   if (!selected) {
@@ -1789,13 +1785,9 @@ lozChess.prototype.go = function() {
     selected = {move: fallbackMove, rawScore: bestScore, aggression: 0};
   }
 
-  // Final tactical guard: never keep a humanized move if it drops too much vs the engine best.
-  selected = this.enforceBlunderGuard(selected, candidates, board.turn, bestScore, spec);
-
   this.stats.bestMove = selected.move;
 
-  var selectedScore = (typeof selected.pickScore == 'number') ? selected.pickScore : selected.rawScore;
-  var lastLoss = Math.max(0, bestScore - selectedScore);
+  var lastLoss = Math.max(0, bestScore - selected.rawScore);
   this.acplLast = lastLoss;
 
   if (board.turn == WHITE) {
@@ -1811,13 +1803,13 @@ lozChess.prototype.go = function() {
     var maxPV = Math.min(wantedPV, candidates.length);
     for (var i=0; i < maxPV; i++) {
       var c = candidates[i];
-      var pv = board.getPVStr(this.rootNode, c.move, Math.max(1, this.stats.ply), UCI_FMT);
-      var pvScore = (typeof c.pickScore == 'number') ? c.pickScore : c.rawScore;
-      this.sendUciPvInfo(this.stats.ply, this.stats.selDepth, pvScore, pv, i + 1);
+      var s = this.toUciScore(c.rawScore);
+      var pv = board.getPVStr(this.rootNode, c.move, Math.max(1, this.stats.ply));
+      this.uci.send('info', 'depth', this.stats.ply, 'seldepth', this.stats.selDepth, 'multipv', i+1, 'score', s.units, s.value, 'pv', pv);
     }
   }
 
-  var evalBar = this.scoreToEvalBar(selectedScore);
+  var evalBar = this.scoreToEvalBar(selected.rawScore);
   var wAcpl = this.acplWhiteMoves ? myround(this.acplWhiteLoss / this.acplWhiteMoves) : 0;
   var bAcpl = this.acplBlackMoves ? myround(this.acplBlackLoss / this.acplBlackMoves) : 0;
 
@@ -1855,9 +1847,6 @@ lozChess.prototype.collectRootCandidates = function (turn, limit) {
   else
     board.genMoves(node, turn);
 
-  var saveNodes = this.stats.nodes;
-  var saveSelDepth = this.stats.selDepth;
-
   while (move = node.getNextMove()) {
 
     board.makeMove(node, move);
@@ -1868,7 +1857,7 @@ lozChess.prototype.collectRootCandidates = function (turn, limit) {
       continue;
     }
 
-    var score = -this.qSearch(node.childNode, -1, nextTurn, -INFINITY, INFINITY, 0);
+    var score = -board.evaluate(nextTurn);
     var aggression = 0;
 
     if (move & MOVE_TOOBJ_MASK)
@@ -1882,56 +1871,18 @@ lozChess.prototype.collectRootCandidates = function (turn, limit) {
     if (aggression < 0)
       aggression = 0;
 
-    candidates.push({move: move, rawScore: score, pickScore: score, tacticalDrop: 0, aggression: aggression});
+    candidates.push({move: move, rawScore: score, aggression: aggression});
 
     board.unmakeMove(node, move);
     node.uncache();
   }
 
   candidates.sort(function(a, b) {
-    return b.pickScore - a.pickScore;
-  });
-
-  // Verify a handful of top candidates with shallow full search to reduce tactical blunders.
-  var verifyN = Math.min(8, candidates.length);
-  var verifyDepth = this.stats.ply >= 14 ? 4 : 3;
-
-  for (var i=0; i < verifyN; i++) {
-    if (this.stats.timeOut)
-      break;
-
-    var c = candidates[i];
-
-    board.makeMove(node, c.move);
-
-    if (board.isKingAttacked(nextTurn)) {
-      board.unmakeMove(node, c.move);
-      node.uncache();
-      c.pickScore = -INFINITY;
-      c.tacticalDrop = INFINITY;
-      continue;
-    }
-
-    var vScore = -this.alphabeta(node.childNode, verifyDepth, nextTurn, -INFINITY, INFINITY, NULL_N, INCHECK_UNKNOWN);
-
-    board.unmakeMove(node, c.move);
-    node.uncache();
-
-    if (typeof vScore == 'number') {
-      c.pickScore = vScore;
-      c.tacticalDrop = c.rawScore - vScore;
-    }
-  }
-
-  candidates.sort(function(a, b) {
-    return b.pickScore - a.pickScore;
+    return b.rawScore - a.rawScore;
   });
 
   if (limit > 0 && candidates.length > limit)
     candidates.length = limit;
-
-  this.stats.nodes = saveNodes;
-  this.stats.selDepth = saveSelDepth;
 
   return candidates;
 }
@@ -1944,86 +1895,38 @@ lozChess.prototype.pickHumanMove = function (candidates, bestScore, spec) {
   if (!candidates.length)
     return null;
 
-  var window = Math.max(3, spec.humanWindowCp | 0);
+  var window = Math.max(5, spec.humanWindowCp | 0);
   var randomCp = Math.max(0, spec.humanRandomCp | 0);
-  var maxLossCp = Math.max(0, spec.humanMaxLossCp | 0);
-  var strictLossCap = Math.min(maxLossCp, 4);
-  if (strictLossCap < 1)
-    return candidates[0];
+  var calm = parseFloat(spec.humanCalm);
+
+  if (isNaN(calm))
+    calm = 0.7;
 
   var pool = [];
 
   for (var i=0; i < candidates.length; i++) {
-    var baseScore = (typeof candidates[i].pickScore == 'number') ? candidates[i].pickScore : candidates[i].rawScore;
-    var loss = bestScore - baseScore;
-    var tacticalDrop = candidates[i].tacticalDrop || 0;
-
-    if (tacticalDrop > 40)
-      continue;
-
-    if (loss <= window && loss <= strictLossCap && tacticalDrop <= 12)
+    if (candidates[i].rawScore >= bestScore - window)
       pool.push(candidates[i]);
   }
 
   if (!pool.length)
-    pool = candidates.slice(0, 1);
+    pool = candidates.slice(0, Math.min(3, candidates.length));
 
-  // Deterministic and safety-first selection: keep near-best, then prefer calmer move.
-  var best = pool[0];
+  var best = null;
+  var bestAdjusted = -INFINITY;
 
   for (var i=0; i < pool.length; i++) {
     var c = pool[i];
-    var cScore = (typeof c.pickScore == 'number') ? c.pickScore : c.rawScore;
-    var bScore = (typeof best.pickScore == 'number') ? best.pickScore : best.rawScore;
-    var cLoss = bestScore - cScore;
-    var bLoss = bestScore - bScore;
+    var jitter = randomCp ? ((Math.random() * 2 - 1) * randomCp) : 0;
+    var adjusted = c.rawScore - (calm * 25 * c.aggression) + jitter;
 
-    if (cLoss < bLoss) {
+    if (adjusted > bestAdjusted) {
+      bestAdjusted = adjusted;
       best = c;
-      continue;
     }
-
-    // Prefer less aggressive move only when it is almost equal and tactically stable.
-    if (cLoss <= 2 && (c.tacticalDrop || 0) <= 8 && c.aggression < best.aggression)
-      best = c;
-  }
-
-  // Keep tiny optional jitter for people that still want variety.
-  if (randomCp > 0 && pool.length > 1) {
-    var idx = Math.floor(Math.random() * Math.min(pool.length, 2));
-    var r = pool[idx];
-    var rScore = (typeof r.pickScore == 'number') ? r.pickScore : r.rawScore;
-    if (bestScore - rScore <= Math.min(strictLossCap, 2) && (r.tacticalDrop || 0) <= 6)
-      best = r;
   }
 
   return best;
-}
-
-//}}}
-//{{{  .enforceBlunderGuard
-
-lozChess.prototype.enforceBlunderGuard = function (selected, candidates, turn, bestScore, spec) {
-
-  if (!selected || !selected.move)
-    return selected;
-
-  var maxLossCp = Math.max(0, spec.humanMaxLossCp | 0);
-  var hardCap = Math.min(maxLossCp || 0, 4);
-
-  if (hardCap < 1)
-    return candidates && candidates.length ? candidates[0] : selected;
-
-  var selScore = (typeof selected.pickScore == 'number') ? selected.pickScore : selected.rawScore;
-
-  if ((bestScore - selScore) <= hardCap)
-    return selected;
-
-  // If the selected move drops too much, force the safest top candidate.
-  if (candidates && candidates.length)
-    return candidates[0];
-
-  return selected;
 }
 
 //}}}
@@ -2041,26 +1944,6 @@ lozChess.prototype.toUciScore = function (score) {
   }
 
   return {units: 'cp', value: score};
-}
-
-//}}}
-//{{{  .sendUciPvInfo
-
-lozChess.prototype.sendUciPvInfo = function (depth, seldepth, score, pvStr, multipv) {
-
-  var s = this.toUciScore(score);
-  var tim = Date.now() - this.stats.startTime;
-
-  if (tim < 1)
-    tim = 1;
-
-  var nps = (this.stats.nodes * 1000) / tim | 0;
-  var hashfull = myround(1000 * this.board.hashUsed / TTSIZE);
-
-  if (multipv && multipv > 1)
-    this.uci.send('info', 'depth', depth, 'seldepth', seldepth, 'multipv', multipv, 'score', s.units, s.value, 'nodes', this.stats.nodes, 'nps', nps, 'hashfull', hashfull, 'time', tim, 'pv', pvStr);
-  else
-    this.uci.send('info', 'depth', depth, 'seldepth', seldepth, 'score', s.units, s.value, 'nodes', this.stats.nodes, 'nps', nps, 'hashfull', hashfull, 'time', tim, 'pv', pvStr);
 }
 
 //}}}
@@ -2208,8 +2091,22 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
         
         this.stats.bestMove = move;
         
-        var pvStr    = board.getPVStr(node,move,depth,UCI_FMT);
-        this.sendUciPvInfo(this.stats.ply, this.stats.selDepth, score, pvStr, this.uci.spec.multiPV > 1 ? 1 : 0);
+        var absScore = Math.abs(score);
+        var units    = 'cp';
+        var uciScore = score;
+        var mv       = board.formatMove(move,board.mvFmt);
+        var pvStr    = board.getPVStr(node,move,depth);
+        
+        if (absScore >= MINMATE && absScore <= MATE) {
+          if (lozzaHost != HOST_NODEJS)
+            pvStr += '#';
+          var units    = 'mate';
+          var uciScore = (MATE - absScore) / 2 | 0;
+          if (score < 0)
+            uciScore = -uciScore;
+        }
+        
+        this.uci.send('info',this.stats.nodeStr(),'depth',this.stats.ply,'seldepth',this.stats.selDepth,'score',units,uciScore,'pv',pvStr);
         //this.stats.update();
         
         if (this.stats.splits > 5)
@@ -6575,7 +6472,7 @@ lozBoard.prototype.playMove = function (moveStr) {
 //}}}
 //{{{  .getPVStr
 
-lozBoard.prototype.getPVStr = function(node,move,depth,fmt) {
+lozBoard.prototype.getPVStr = function(node,move,depth) {
 
   if (!node || !depth)
     return '';
@@ -6586,22 +6483,16 @@ lozBoard.prototype.getPVStr = function(node,move,depth,fmt) {
   if (!move)
     return '';
 
-  if (fmt === undefined)
-    fmt = this.mvFmt;
-
   node.cache();
   this.makeMove(node,move);
 
-  var mv = this.formatMove(move, fmt);
-  var pv = this.getPVStr(node.childNode,0,depth-1,fmt);
+  var mv = this.formatMove(move, this.mvFmt);
+  var pv = ' ' + this.getPVStr(node.childNode,0,depth-1);
 
   this.unmakeMove(node,move);
   node.uncache();
 
-  if (pv)
-    return mv + ' ' + pv;
-
-  return mv;
+  return mv + pv;
 }
 
 //}}}
@@ -7179,12 +7070,10 @@ function lozUCI () {
 
   this.options = {};
   this.options.MultiPV = '1';
-  this.options.HumanPreset = 'normal';
   this.options.HumanStyle = 'true';
-  this.options.HumanWindowCp = '12';
-  this.options.HumanRandomCp = '0';
-  this.options.HumanCalm = '1.25';
-  this.options.HumanMaxLossCp = '4';
+  this.options.HumanWindowCp = '90';
+  this.options.HumanRandomCp = '16';
+  this.options.HumanCalm = '0.70';
 }
 
 //}}}
@@ -7283,43 +7172,6 @@ lozUCI.prototype.getArr = function (key, to) {
   }
 
   return {lo:lo, hi:hi};
-}
-
-//}}}
-//{{{  .applyHumanPreset
-
-lozUCI.prototype.applyHumanPreset = function (preset) {
-
-  var p = ('' + preset).toLowerCase();
-
-  if (p != 'easy' && p != 'normal' && p != 'strong' && p != 'custom')
-    p = 'normal';
-
-  this.options.HumanPreset = p;
-
-  if (p == 'custom')
-    return;
-
-  this.options.HumanStyle = 'true';
-
-  if (p == 'easy') {
-    this.options.HumanWindowCp = '25';
-    this.options.HumanRandomCp = '4';
-    this.options.HumanCalm = '1.15';
-    this.options.HumanMaxLossCp = '10';
-  }
-  else if (p == 'strong') {
-    this.options.HumanWindowCp = '6';
-    this.options.HumanRandomCp = '0';
-    this.options.HumanCalm = '1.35';
-    this.options.HumanMaxLossCp = '1';
-  }
-  else {
-    this.options.HumanWindowCp = '12';
-    this.options.HumanRandomCp = '0';
-    this.options.HumanCalm = '1.25';
-    this.options.HumanMaxLossCp = '4';
-  }
 }
 
 //}}}
@@ -7446,19 +7298,15 @@ onmessage = function(e) {
 
       uci.spec.humanWindowCp = parseInt(uci.options.HumanWindowCp, 10);
       if (isNaN(uci.spec.humanWindowCp) || uci.spec.humanWindowCp < 5)
-        uci.spec.humanWindowCp = 12;
+        uci.spec.humanWindowCp = 90;
 
       uci.spec.humanRandomCp = parseInt(uci.options.HumanRandomCp, 10);
       if (isNaN(uci.spec.humanRandomCp) || uci.spec.humanRandomCp < 0)
-        uci.spec.humanRandomCp = 0;
+        uci.spec.humanRandomCp = 16;
 
       uci.spec.humanCalm = parseFloat(uci.options.HumanCalm);
       if (isNaN(uci.spec.humanCalm) || uci.spec.humanCalm < 0)
-        uci.spec.humanCalm = 1.25;
-
-      uci.spec.humanMaxLossCp = parseInt(uci.options.HumanMaxLossCp, 10);
-      if (isNaN(uci.spec.humanMaxLossCp) || uci.spec.humanMaxLossCp < 0)
-        uci.spec.humanMaxLossCp = 4;
+        uci.spec.humanCalm = 0.70;
       
       uci.numMoves++;
       
@@ -7520,12 +7368,10 @@ onmessage = function(e) {
       uci.send('id name Lozza',BUILD);
       uci.send('id author Colin Jenkins');
       uci.send('option name MultiPV type spin default 1 min 1 max 8');
-      uci.send('option name HumanPreset type combo default normal var easy var normal var strong var custom');
       uci.send('option name HumanStyle type check default true');
-      uci.send('option name HumanWindowCp type spin default 12 min 5 max 300');
-      uci.send('option name HumanRandomCp type spin default 0 min 0 max 150');
-      uci.send('option name HumanCalm type string default 1.25');
-      uci.send('option name HumanMaxLossCp type spin default 4 min 0 max 300');
+      uci.send('option name HumanWindowCp type spin default 90 min 5 max 300');
+      uci.send('option name HumanRandomCp type spin default 16 min 0 max 150');
+      uci.send('option name HumanCalm type string default 0.70');
       uci.send('uciok');
       
       break;
@@ -7546,19 +7392,8 @@ onmessage = function(e) {
       
       var key = uci.getStr('name');
       var val = uci.getStr('value');
-
-      if (!val)
-        val = '';
-
-      if (key == 'HumanPreset') {
-        uci.applyHumanPreset(val);
-      }
-      else {
-        uci.options[key] = val;
-
-        if (key == 'HumanStyle' || key == 'HumanWindowCp' || key == 'HumanRandomCp' || key == 'HumanCalm' || key == 'HumanMaxLossCp')
-          uci.options.HumanPreset = 'custom';
-      }
+      
+      uci.options[key] = val;
       
       break;
       
