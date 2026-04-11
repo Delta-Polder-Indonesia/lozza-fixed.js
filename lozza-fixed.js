@@ -1772,7 +1772,7 @@ lozChess.prototype.go = function() {
   var candidates = this.collectRootCandidates(board.turn, candidateCount);
 
   if (!candidates.length && this.stats.bestMove) {
-    candidates.push({move: this.stats.bestMove, rawScore: bestScore, aggression: 0});
+    candidates.push({move: this.stats.bestMove, rawScore: bestScore, pickScore: bestScore, tacticalDrop: 0, aggression: 0});
   }
 
   var selected = null;
@@ -1789,7 +1789,8 @@ lozChess.prototype.go = function() {
 
   this.stats.bestMove = selected.move;
 
-  var lastLoss = Math.max(0, bestScore - selected.rawScore);
+  var selectedScore = (typeof selected.pickScore == 'number') ? selected.pickScore : selected.rawScore;
+  var lastLoss = Math.max(0, bestScore - selectedScore);
   this.acplLast = lastLoss;
 
   if (board.turn == WHITE) {
@@ -1806,11 +1807,12 @@ lozChess.prototype.go = function() {
     for (var i=0; i < maxPV; i++) {
       var c = candidates[i];
       var pv = board.getPVStr(this.rootNode, c.move, Math.max(1, this.stats.ply), UCI_FMT);
-      this.sendUciPvInfo(this.stats.ply, this.stats.selDepth, c.rawScore, pv, i + 1);
+      var pvScore = (typeof c.pickScore == 'number') ? c.pickScore : c.rawScore;
+      this.sendUciPvInfo(this.stats.ply, this.stats.selDepth, pvScore, pv, i + 1);
     }
   }
 
-  var evalBar = this.scoreToEvalBar(selected.rawScore);
+  var evalBar = this.scoreToEvalBar(selectedScore);
   var wAcpl = this.acplWhiteMoves ? myround(this.acplWhiteLoss / this.acplWhiteMoves) : 0;
   var bAcpl = this.acplBlackMoves ? myround(this.acplBlackLoss / this.acplBlackMoves) : 0;
 
@@ -1875,14 +1877,48 @@ lozChess.prototype.collectRootCandidates = function (turn, limit) {
     if (aggression < 0)
       aggression = 0;
 
-    candidates.push({move: move, rawScore: score, aggression: aggression});
+    candidates.push({move: move, rawScore: score, pickScore: score, tacticalDrop: 0, aggression: aggression});
 
     board.unmakeMove(node, move);
     node.uncache();
   }
 
   candidates.sort(function(a, b) {
-    return b.rawScore - a.rawScore;
+    return b.pickScore - a.pickScore;
+  });
+
+  // Verify a handful of top candidates with shallow full search to reduce tactical blunders.
+  var verifyN = Math.min(6, candidates.length);
+
+  for (var i=0; i < verifyN; i++) {
+    if (this.stats.timeOut)
+      break;
+
+    var c = candidates[i];
+
+    board.makeMove(node, c.move);
+
+    if (board.isKingAttacked(nextTurn)) {
+      board.unmakeMove(node, c.move);
+      node.uncache();
+      c.pickScore = -INFINITY;
+      c.tacticalDrop = INFINITY;
+      continue;
+    }
+
+    var vScore = -this.alphabeta(node.childNode, 2, nextTurn, -INFINITY, INFINITY, NULL_N, INCHECK_UNKNOWN);
+
+    board.unmakeMove(node, c.move);
+    node.uncache();
+
+    if (typeof vScore == 'number') {
+      c.pickScore = vScore;
+      c.tacticalDrop = c.rawScore - vScore;
+    }
+  }
+
+  candidates.sort(function(a, b) {
+    return b.pickScore - a.pickScore;
   });
 
   if (limit > 0 && candidates.length > limit)
@@ -1913,7 +1949,12 @@ lozChess.prototype.pickHumanMove = function (candidates, bestScore, spec) {
   var pool = [];
 
   for (var i=0; i < candidates.length; i++) {
-    var loss = bestScore - candidates[i].rawScore;
+    var baseScore = (typeof candidates[i].pickScore == 'number') ? candidates[i].pickScore : candidates[i].rawScore;
+    var loss = bestScore - baseScore;
+    var tacticalDrop = candidates[i].tacticalDrop || 0;
+
+    if (tacticalDrop > 55)
+      continue;
 
     if (loss <= window && loss <= maxLossCp)
       pool.push(candidates[i]);
@@ -1927,10 +1968,12 @@ lozChess.prototype.pickHumanMove = function (candidates, bestScore, spec) {
 
   for (var i=0; i < pool.length; i++) {
     var c = pool[i];
-    var scoreGap = Math.max(0, bestScore - c.rawScore);
+    var baseScore = (typeof c.pickScore == 'number') ? c.pickScore : c.rawScore;
+    var scoreGap = Math.max(0, bestScore - baseScore);
     var jitterCap = Math.max(0, Math.min(randomCp, maxLossCp - scoreGap));
     var jitter = jitterCap ? ((Math.random() * 2 - 1) * jitterCap) : 0;
-    var adjusted = c.rawScore - (calm * 25 * c.aggression) + jitter;
+    var tacticalPenalty = (c.tacticalDrop > 0) ? Math.min(60, c.tacticalDrop * 0.7) : 0;
+    var adjusted = baseScore - (calm * 20 * c.aggression) - tacticalPenalty + jitter;
 
     if (adjusted > bestAdjusted) {
       bestAdjusted = adjusted;
@@ -7099,7 +7142,7 @@ function lozUCI () {
   this.options.HumanWindowCp = '90';
   this.options.HumanRandomCp = '16';
   this.options.HumanCalm = '0.70';
-  this.options.HumanMaxLossCp = '28';
+  this.options.HumanMaxLossCp = '16';
 }
 
 //}}}
@@ -7221,19 +7264,19 @@ lozUCI.prototype.applyHumanPreset = function (preset) {
     this.options.HumanWindowCp = '170';
     this.options.HumanRandomCp = '45';
     this.options.HumanCalm = '1.15';
-    this.options.HumanMaxLossCp = '90';
+    this.options.HumanMaxLossCp = '70';
   }
   else if (p == 'strong') {
     this.options.HumanWindowCp = '40';
     this.options.HumanRandomCp = '6';
     this.options.HumanCalm = '0.35';
-    this.options.HumanMaxLossCp = '12';
+    this.options.HumanMaxLossCp = '8';
   }
   else {
     this.options.HumanWindowCp = '90';
     this.options.HumanRandomCp = '16';
     this.options.HumanCalm = '0.70';
-    this.options.HumanMaxLossCp = '28';
+    this.options.HumanMaxLossCp = '16';
   }
 }
 
@@ -7373,7 +7416,7 @@ onmessage = function(e) {
 
       uci.spec.humanMaxLossCp = parseInt(uci.options.HumanMaxLossCp, 10);
       if (isNaN(uci.spec.humanMaxLossCp) || uci.spec.humanMaxLossCp < 0)
-        uci.spec.humanMaxLossCp = 28;
+        uci.spec.humanMaxLossCp = 16;
       
       uci.numMoves++;
       
@@ -7440,7 +7483,7 @@ onmessage = function(e) {
       uci.send('option name HumanWindowCp type spin default 90 min 5 max 300');
       uci.send('option name HumanRandomCp type spin default 16 min 0 max 150');
       uci.send('option name HumanCalm type string default 0.70');
-      uci.send('option name HumanMaxLossCp type spin default 28 min 0 max 300');
+      uci.send('option name HumanMaxLossCp type spin default 16 min 0 max 300');
       uci.send('uciok');
       
       break;
