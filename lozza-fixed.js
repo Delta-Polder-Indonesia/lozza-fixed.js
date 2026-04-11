@@ -1787,6 +1787,9 @@ lozChess.prototype.go = function() {
     selected = {move: fallbackMove, rawScore: bestScore, aggression: 0};
   }
 
+  // Final tactical guard: never keep a humanized move if it drops too much vs the engine best.
+  selected = this.enforceBlunderGuard(selected, candidates, board.turn, bestScore, spec);
+
   this.stats.bestMove = selected.move;
 
   var selectedScore = (typeof selected.pickScore == 'number') ? selected.pickScore : selected.rawScore;
@@ -1906,7 +1909,7 @@ lozChess.prototype.collectRootCandidates = function (turn, limit) {
       continue;
     }
 
-    var vScore = -this.alphabeta(node.childNode, 2, nextTurn, -INFINITY, INFINITY, NULL_N, INCHECK_UNKNOWN);
+    var vScore = -this.alphabeta(node.childNode, 3, nextTurn, -INFINITY, INFINITY, NULL_N, INCHECK_UNKNOWN);
 
     board.unmakeMove(node, c.move);
     node.uncache();
@@ -1938,7 +1941,7 @@ lozChess.prototype.pickHumanMove = function (candidates, bestScore, spec) {
   if (!candidates.length)
     return null;
 
-  var window = Math.max(5, spec.humanWindowCp | 0);
+  var window = Math.max(4, spec.humanWindowCp | 0);
   var randomCp = Math.max(0, spec.humanRandomCp | 0);
   var maxLossCp = Math.max(0, spec.humanMaxLossCp | 0);
   var calm = parseFloat(spec.humanCalm);
@@ -1953,7 +1956,7 @@ lozChess.prototype.pickHumanMove = function (candidates, bestScore, spec) {
     var loss = bestScore - baseScore;
     var tacticalDrop = candidates[i].tacticalDrop || 0;
 
-    if (tacticalDrop > 55)
+    if (tacticalDrop > 40)
       continue;
 
     if (loss <= window && loss <= maxLossCp)
@@ -1963,25 +1966,57 @@ lozChess.prototype.pickHumanMove = function (candidates, bestScore, spec) {
   if (!pool.length)
     pool = candidates.slice(0, 1);
 
-  var best = null;
-  var bestAdjusted = -INFINITY;
+  // Deterministic and safety-first selection: prefer calm move only when near-best.
+  var best = pool[0];
 
   for (var i=0; i < pool.length; i++) {
     var c = pool[i];
     var baseScore = (typeof c.pickScore == 'number') ? c.pickScore : c.rawScore;
-    var scoreGap = Math.max(0, bestScore - baseScore);
-    var jitterCap = Math.max(0, Math.min(randomCp, maxLossCp - scoreGap));
-    var jitter = jitterCap ? ((Math.random() * 2 - 1) * jitterCap) : 0;
-    var tacticalPenalty = (c.tacticalDrop > 0) ? Math.min(60, c.tacticalDrop * 0.7) : 0;
-    var adjusted = baseScore - (calm * 20 * c.aggression) - tacticalPenalty + jitter;
+    var loss = bestScore - baseScore;
 
-    if (adjusted > bestAdjusted) {
-      bestAdjusted = adjusted;
+    // Prefer non-aggressive alternatives only if they stay very close to best.
+    if (c.aggression <= 0 && loss <= Math.min(maxLossCp, 12) && (c.tacticalDrop || 0) <= 20) {
       best = c;
+      break;
     }
   }
 
+  // Keep tiny optional jitter for people that still want variety.
+  if (randomCp > 0 && pool.length > 1) {
+    var idx = Math.floor(Math.random() * Math.min(pool.length, 2 + (calm < 0.5 ? 2 : 1)));
+    var r = pool[idx];
+    var rScore = (typeof r.pickScore == 'number') ? r.pickScore : r.rawScore;
+    if (bestScore - rScore <= Math.min(maxLossCp, 8) && (r.tacticalDrop || 0) <= 15)
+      best = r;
+  }
+
   return best;
+}
+
+//}}}
+//{{{  .enforceBlunderGuard
+
+lozChess.prototype.enforceBlunderGuard = function (selected, candidates, turn, bestScore, spec) {
+
+  if (!selected || !selected.move)
+    return selected;
+
+  var maxLossCp = Math.max(0, spec.humanMaxLossCp | 0);
+  var hardCap = Math.min(maxLossCp || 0, 10);
+
+  if (hardCap < 1)
+    return candidates && candidates.length ? candidates[0] : selected;
+
+  var selScore = (typeof selected.pickScore == 'number') ? selected.pickScore : selected.rawScore;
+
+  if ((bestScore - selScore) <= hardCap)
+    return selected;
+
+  // If the selected move drops too much, force the safest top candidate.
+  if (candidates && candidates.length)
+    return candidates[0];
+
+  return selected;
 }
 
 //}}}
@@ -7139,10 +7174,10 @@ function lozUCI () {
   this.options.MultiPV = '1';
   this.options.HumanPreset = 'normal';
   this.options.HumanStyle = 'true';
-  this.options.HumanWindowCp = '90';
-  this.options.HumanRandomCp = '16';
-  this.options.HumanCalm = '0.70';
-  this.options.HumanMaxLossCp = '16';
+  this.options.HumanWindowCp = '24';
+  this.options.HumanRandomCp = '0';
+  this.options.HumanCalm = '1.10';
+  this.options.HumanMaxLossCp = '8';
 }
 
 //}}}
@@ -7261,22 +7296,22 @@ lozUCI.prototype.applyHumanPreset = function (preset) {
   this.options.HumanStyle = 'true';
 
   if (p == 'easy') {
-    this.options.HumanWindowCp = '170';
-    this.options.HumanRandomCp = '45';
-    this.options.HumanCalm = '1.15';
-    this.options.HumanMaxLossCp = '70';
+    this.options.HumanWindowCp = '45';
+    this.options.HumanRandomCp = '8';
+    this.options.HumanCalm = '1.10';
+    this.options.HumanMaxLossCp = '20';
   }
   else if (p == 'strong') {
-    this.options.HumanWindowCp = '40';
-    this.options.HumanRandomCp = '6';
-    this.options.HumanCalm = '0.35';
-    this.options.HumanMaxLossCp = '8';
+    this.options.HumanWindowCp = '10';
+    this.options.HumanRandomCp = '0';
+    this.options.HumanCalm = '1.30';
+    this.options.HumanMaxLossCp = '2';
   }
   else {
-    this.options.HumanWindowCp = '90';
-    this.options.HumanRandomCp = '16';
-    this.options.HumanCalm = '0.70';
-    this.options.HumanMaxLossCp = '16';
+    this.options.HumanWindowCp = '24';
+    this.options.HumanRandomCp = '0';
+    this.options.HumanCalm = '1.10';
+    this.options.HumanMaxLossCp = '8';
   }
 }
 
@@ -7404,19 +7439,19 @@ onmessage = function(e) {
 
       uci.spec.humanWindowCp = parseInt(uci.options.HumanWindowCp, 10);
       if (isNaN(uci.spec.humanWindowCp) || uci.spec.humanWindowCp < 5)
-        uci.spec.humanWindowCp = 90;
+        uci.spec.humanWindowCp = 24;
 
       uci.spec.humanRandomCp = parseInt(uci.options.HumanRandomCp, 10);
       if (isNaN(uci.spec.humanRandomCp) || uci.spec.humanRandomCp < 0)
-        uci.spec.humanRandomCp = 16;
+        uci.spec.humanRandomCp = 0;
 
       uci.spec.humanCalm = parseFloat(uci.options.HumanCalm);
       if (isNaN(uci.spec.humanCalm) || uci.spec.humanCalm < 0)
-        uci.spec.humanCalm = 0.70;
+        uci.spec.humanCalm = 1.10;
 
       uci.spec.humanMaxLossCp = parseInt(uci.options.HumanMaxLossCp, 10);
       if (isNaN(uci.spec.humanMaxLossCp) || uci.spec.humanMaxLossCp < 0)
-        uci.spec.humanMaxLossCp = 16;
+        uci.spec.humanMaxLossCp = 8;
       
       uci.numMoves++;
       
@@ -7480,10 +7515,10 @@ onmessage = function(e) {
       uci.send('option name MultiPV type spin default 1 min 1 max 8');
       uci.send('option name HumanPreset type combo default normal var easy var normal var strong var custom');
       uci.send('option name HumanStyle type check default true');
-      uci.send('option name HumanWindowCp type spin default 90 min 5 max 300');
-      uci.send('option name HumanRandomCp type spin default 16 min 0 max 150');
-      uci.send('option name HumanCalm type string default 0.70');
-      uci.send('option name HumanMaxLossCp type spin default 16 min 0 max 300');
+      uci.send('option name HumanWindowCp type spin default 24 min 5 max 300');
+      uci.send('option name HumanRandomCp type spin default 0 min 0 max 150');
+      uci.send('option name HumanCalm type string default 1.10');
+      uci.send('option name HumanMaxLossCp type spin default 8 min 0 max 300');
       uci.send('uciok');
       
       break;
