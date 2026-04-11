@@ -1,1248 +1,1672 @@
-/*
-  Bintang Toba Chess Engine v2.0 (Web Worker)
-  Fixed & optimized version.
-*/
+/**
+ * Advanced JavaScript Chess Engine
+ * Web Worker compatible, near-Stockfish architecture
+ */
 
-(() => {
-  'use strict';
+// ============================================================================
+// 1. BITBOARD UTILITIES & CONSTANTS
+// ============================================================================
 
-  const FILES = 'abcdefgh';
-  const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-
-  const EMPTY = 0;
-  const WP = 1, WN = 2, WB = 3, WR = 4, WQ = 5, WK = 6;
-  const BP = 9, BN = 10, BB = 11, BR = 12, BQ = 13, BK = 14;
-
-  const WHITE = 0;
-  const BLACK = 1;
-
-  const INF = 30000;
-  const MATE = 29000;
-
-  const FLAG_CAPTURE = 1;
-  const FLAG_EP      = 2;
-  const FLAG_CASTLE  = 4;
-  const FLAG_PROMO   = 8;
-
-  const KNIGHT_DIR = [31, 33, 14, -14, 18, -18, -31, -33];
-  const BISHOP_DIR = [15, 17, -15, -17];
-  const ROOK_DIR   = [1, -1, 16, -16];
-  const KING_DIR   = [1, -1, 16, -16, 15, 17, -15, -17];
-
-  const PIECE_VALUE = {
-    [WP]: 100, [WN]: 320, [WB]: 330, [WR]: 500, [WQ]: 900, [WK]: 0,
-    [BP]: 100, [BN]: 320, [BB]: 330, [BR]: 500, [BQ]: 900, [BK]: 0,
-  };
-
-  const PIECE_CH = {
-    [WP]:'P',[WN]:'N',[WB]:'B',[WR]:'R',[WQ]:'Q',[WK]:'K',
-    [BP]:'p',[BN]:'n',[BB]:'b',[BR]:'r',[BQ]:'q',[BK]:'k',
-  };
-
-  const CH_PIECE = {
-    P:WP,N:WN,B:WB,R:WR,Q:WQ,K:WK,
-    p:BP,n:BN,b:BB,r:BR,q:BQ,k:BK,
-  };
-
-  function isWhite(p)    { return p >= WP && p <= WK; }
-  function isBlack(p)    { return p >= BP && p <= BK; }
-  function colorOf(p)    { return isWhite(p) ? WHITE : BLACK; }
-  function opponent(c)   { return c ^ 1; }
-  function onBoard(sq)   { return (sq & 0x88) === 0; }
-
-  /* ── Piece-square tables (white view, rank-8 first in array = rank index 7) ── */
-  const PST_PAWN = [
-      0,  0,  0,  0,  0,  0,  0,  0,
-     50, 50, 50, 50, 50, 50, 50, 50,
-     10, 10, 20, 30, 30, 20, 10, 10,
-      5,  5, 10, 25, 25, 10,  5,  5,
-      0,  0,  0, 20, 20,  0,  0,  0,
-      5, -5,-10,  0,  0,-10, -5,  5,
-      5, 10, 10,-20,-20, 10, 10,  5,
-      0,  0,  0,  0,  0,  0,  0,  0,
-  ];
-  const PST_KNIGHT = [
-    -50,-40,-30,-30,-30,-30,-40,-50,
-    -40,-20,  0,  0,  0,  0,-20,-40,
-    -30,  0, 10, 15, 15, 10,  0,-30,
-    -30,  5, 15, 20, 20, 15,  5,-30,
-    -30,  0, 15, 20, 20, 15,  0,-30,
-    -30,  5, 10, 15, 15, 10,  5,-30,
-    -40,-20,  0,  5,  5,  0,-20,-40,
-    -50,-40,-30,-30,-30,-30,-40,-50,
-  ];
-  const PST_BISHOP = [
-    -20,-10,-10,-10,-10,-10,-10,-20,
-    -10,  0,  0,  0,  0,  0,  0,-10,
-    -10,  0,  5, 10, 10,  5,  0,-10,
-    -10,  5,  5, 10, 10,  5,  5,-10,
-    -10,  0, 10, 10, 10, 10,  0,-10,
-    -10, 10, 10, 10, 10, 10, 10,-10,
-    -10,  5,  0,  0,  0,  0,  5,-10,
-    -20,-10,-10,-10,-10,-10,-10,-20,
-  ];
-  const PST_ROOK = [
-      0,  0,  0,  0,  0,  0,  0,  0,
-      5, 10, 10, 10, 10, 10, 10,  5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-     -5,  0,  0,  0,  0,  0,  0, -5,
-      0,  0,  0,  5,  5,  0,  0,  0,
-  ];
-  const PST_QUEEN = [
-    -20,-10,-10, -5, -5,-10,-10,-20,
-    -10,  0,  0,  0,  0,  0,  0,-10,
-    -10,  0,  5,  5,  5,  5,  0,-10,
-     -5,  0,  5,  5,  5,  5,  0, -5,
-      0,  0,  5,  5,  5,  5,  0, -5,
-    -10,  5,  5,  5,  5,  5,  0,-10,
-    -10,  0,  5,  0,  0,  0,  0,-10,
-    -20,-10,-10, -5, -5,-10,-10,-20,
-  ];
-  const PST_KING_MG = [
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -20,-30,-30,-40,-40,-30,-30,-20,
-    -10,-20,-20,-20,-20,-20,-20,-10,
-     20, 20,  0,  0,  0,  0, 20, 20,
-     20, 30, 10,  0,  0, 10, 30, 20,
-  ];
-
-  /* ────────────────────────────────────────────────────────── */
-
-  class RNG {
-    constructor(seed = 0x9e3779b1) { this.s = seed >>> 0; }
-    next() {
-      let x = this.s;
-      x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
-      this.s = x >>> 0;
-      return this.s;
+const Bitboard = {
+  // Precomputed bitboards
+  FILES: [0x101010101010101n, 0x202020202020202n, 0x404040404040404n, 0x808080808080808n,
+          0x1010101010101010n, 0x2020202020202020n, 0x4040404040404040n, 0x8080808080808080n],
+  
+  RANKS: [0xFFn, 0xFF00n, 0xFF0000n, 0xFF000000n, 
+          0xFF00000000n, 0xFF0000000000n, 0xFF000000000000n, 0xFF00000000000000n],
+  
+  // Square index to bitboard
+  SQ: Array(64).fill(0n).map((_, i) => 1n << BigInt(i)),
+  
+  // Directions
+  N: 8n, S: -8n, E: 1n, W: -1n,
+  NE: 9n, NW: 7n, SE: -7n, SW: -9n,
+  
+  // Piece values
+  PIECE_VALUES: { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 },
+  
+  // Game phases
+  PHASE_VALUES: { P: 0, N: 1, B: 1, R: 2, Q: 4, K: 0 },
+  TOTAL_PHASE: 24,
+  
+  // Zobrist keys for hashing
+  ZOBRIST: {
+    pieces: {},
+    side: 0n,
+    castling: Array(16).fill(0n),
+    ep: Array(64).fill(0n)
+  },
+  
+  // Initialize Zobrist keys
+  initZobrist() {
+    const random64 = () => BigInt(Math.floor(Math.random() * 2**32)) << 32n | 
+                              BigInt(Math.floor(Math.random() * 2**32));
+    
+    // Piece keys
+    for (let color of ['w', 'b']) {
+      this.ZOBRIST.pieces[color] = {};
+      for (let piece of ['P', 'N', 'B', 'R', 'Q', 'K']) {
+        this.ZOBRIST.pieces[color][piece] = Array(64).fill(0n).map(() => random64());
+      }
     }
+    
+    // Side to move
+    this.ZOBRIST.side = random64();
+    
+    // Castling keys
+    for (let i = 0; i < 16; i++) {
+      this.ZOBRIST.castling[i] = random64();
+    }
+    
+    // En passant keys
+    for (let i = 0; i < 64; i++) {
+      this.ZOBRIST.ep[i] = random64();
+    }
+  },
+  
+  // Helper functions
+  popcnt: (bb) => {
+    let count = 0;
+    while (bb) {
+      count++;
+      bb &= bb - 1n;
+    }
+    return count;
+  },
+  
+  lsb: (bb) => {
+    return Number((bb & -bb).toString());
+  },
+  
+  msb: (bb) => {
+    let pos = 0;
+    while (bb) {
+      pos++;
+      bb >>= 1n;
+    }
+    return pos - 1;
+  },
+  
+  bitscan: (bb) => {
+    if (!bb) return -1;
+    return Bitboard.msb(bb & -bb);
   }
+};
 
-  /* ── Fixed-size TT using flat typed arrays ── */
-  const TT_SIZE   = 1 << 20;   // 1 M slots (power-of-2 for fast mod)
-  const TT_MASK   = TT_SIZE - 1;
-  const TT_DEPTH  = 0;         // byte offsets into each slot (Uint32 view)
-  const TT_FLAG   = 1;
-  const TT_SCORE  = 2;
-  const TT_HASH   = 3;
-  const TT_BEST   = 4;         // best-move encoded as uint32
-  const TT_WORDS  = 5;         // words per slot
+// Initialize Zobrist keys
+Bitboard.initZobrist();
 
-  class TranspositionTable {
-    constructor() {
-      this.data = new Int32Array(TT_SIZE * TT_WORDS);
-    }
-    clear() { this.data.fill(0); }
+// ============================================================================
+// 2. BOARD REPRESENTATION
+// ============================================================================
 
-    _idx(hash) { return ((hash >>> 0) & TT_MASK) * TT_WORDS; }
-
-    probe(hash, depth, alpha, beta) {
-      const i = this._idx(hash);
-      if (this.data[i + TT_HASH] !== ((hash >>> 0) | 0)) return null;
-      if (this.data[i + TT_DEPTH] < depth) return null;
-      const score = this.data[i + TT_SCORE];
-      const flag  = this.data[i + TT_FLAG];
-      if (flag === 0)  return score;              // exact
-      if (flag === -1 && score <= alpha) return score; // upper
-      if (flag === 1  && score >= beta)  return score; // lower
-      return null;
-    }
-
-    getBestMove(hash) {
-      const i = this._idx(hash);
-      if (this.data[i + TT_HASH] !== ((hash >>> 0) | 0)) return 0;
-      return this.data[i + TT_BEST];
-    }
-
-    store(hash, depth, score, flag, bestEncoded) {
-      const i = this._idx(hash);
-      // Always-replace: simple, effective at low memory.
-      this.data[i + TT_HASH]  = (hash >>> 0) | 0;
-      this.data[i + TT_DEPTH] = depth;
-      this.data[i + TT_SCORE] = score;
-      this.data[i + TT_FLAG]  = flag;
-      this.data[i + TT_BEST]  = bestEncoded | 0;
-    }
-
-    /* Encode / decode a move as a single int32 for TT storage */
-    static encodeMove(m) {
-      if (!m) return 0;
-      return (m.from) | (m.to << 8) | ((m.promo || 0) << 16) | ((m.flags || 0) << 24);
-    }
-    static decodeMove(v) {
-      if (!v) return null;
-      return {
-        from:    v & 0xff,
-        to:     (v >>> 8)  & 0xff,
-        promo:  (v >>> 16) & 0xff,
-        flags:  (v >>> 24) & 0xff,
-        piece: EMPTY, capture: EMPTY, // filled in by findMoveByEncoded
-      };
-    }
+class Board {
+  constructor() {
+    this.pieces = {
+      w: { P: 0n, N: 0n, B: 0n, R: 0n, Q: 0n, K: 0n },
+      b: { P: 0n, N: 0n, B: 0n, R: 0n, Q: 0n, K: 0n }
+    };
+    this.occupied = 0n;
+    this.empty = ~0n;
+    this.side = 'w';
+    this.castling = { w: { k: false, q: false }, b: { k: false, q: false } };
+    this.ep = -1; // En passant square index
+    this.halfmove = 0;
+    this.fullmove = 1;
+    this.hash = 0n;
+    this.history = [];
+    this.attackMaps = { w: 0n, b: 0n };
+    this.kingSquares = { w: 4, b: 60 };
   }
-
-  /* ────────────────────────────────────────────────────────── */
-
-  function sqToUci(sq) {
-    return FILES[sq & 7] + ((sq >> 4) + 1);
+  
+  updateHash() {
+    let hash = 0n;
+    
+    // Hash pieces
+    for (let color of ['w', 'b']) {
+      for (let piece of ['P', 'N', 'B', 'R', 'Q', 'K']) {
+        let bb = this.pieces[color][piece];
+        while (bb) {
+          const sq = Bitboard.bitscan(bb);
+          bb &= bb - 1n;
+          hash ^= Bitboard.ZOBRIST.pieces[color][piece][sq];
+        }
+      }
+    }
+    
+    // Hash side to move
+    if (this.side === 'b') {
+      hash ^= Bitboard.ZOBRIST.side;
+    }
+    
+    // Hash castling rights
+    let castlingIndex = 0;
+    if (this.castling.w.k) castlingIndex |= 1;
+    if (this.castling.w.q) castlingIndex |= 2;
+    if (this.castling.b.k) castlingIndex |= 4;
+    if (this.castling.b.q) castlingIndex |= 8;
+    hash ^= Bitboard.ZOBRIST.castling[castlingIndex];
+    
+    // Hash en passant
+    if (this.ep >= 0) {
+      hash ^= Bitboard.ZOBRIST.ep[this.ep];
+    }
+    
+    this.hash = hash;
   }
-  function uciToSq(uci) {
-    if (!uci || uci.length < 2) return -1;
-    const f = FILES.indexOf(uci[0]);
-    const r = Number(uci[1]) - 1;
-    if (f < 0 || r < 0 || r > 7) return -1;
-    return (r << 4) | f;
+  
+  fromFen(fen) {
+    const parts = fen.split(' ');
+    const ranks = parts[0].split('/');
+    
+    // Reset board
+    this.pieces = {
+      w: { P: 0n, N: 0n, B: 0n, R: 0n, Q: 0n, K: 0n },
+      b: { P: 0n, N: 0n, B: 0n, R: 0n, Q: 0n, K: 0n }
+    };
+    
+    let sq = 56; // Start from a8
+    for (let rank of ranks) {
+      for (let char of rank) {
+        if (char >= '1' && char <= '8') {
+          sq += parseInt(char);
+        } else {
+          const color = char === char.toUpperCase() ? 'w' : 'b';
+          const piece = char.toUpperCase();
+          this.pieces[color][piece] |= Bitboard.SQ[sq];
+          if (piece === 'K') this.kingSquares[color] = sq;
+          sq++;
+        }
+      }
+      sq -= 16; // Move to next rank
+    }
+    
+    this.side = parts[1] || 'w';
+    this.castling = { w: { k: false, q: false }, b: { k: false, q: false } };
+    if (parts[2]) {
+      for (let c of parts[2]) {
+        if (c === 'K') this.castling.w.k = true;
+        if (c === 'Q') this.castling.w.q = true;
+        if (c === 'k') this.castling.b.k = true;
+        if (c === 'q') this.castling.b.q = true;
+      }
+    }
+    
+    this.ep = parts[3] && parts[3] !== '-' ? 
+      'abcdefgh'.indexOf(parts[3][0]) + (parseInt(parts[3][1]) - 1) * 8 : -1;
+    
+    this.halfmove = parseInt(parts[4]) || 0;
+    this.fullmove = parseInt(parts[5]) || 1;
+    
+    this.updateOccupancy();
+    this.generateAttackMaps();
+    this.updateHash();
   }
-
-  /* Pre-compute common squares */
-  const SQ = {};
-  ['a1','b1','c1','d1','e1','f1','g1','h1',
-   'a8','b8','c8','d8','e8','f8','g8','h8'].forEach(n => { SQ[n] = uciToSq(n); });
-
-  /* ────────────────────────────────────────────────────────── */
-
-  class Engine {
-    constructor() {
-      this.name   = 'Bintang Toba 2.0';
-      this.author = 'Bintang Team';
-
-      this.options = { Hash: 4, MultiPV: 1 };
-
-      this.stop      = false;
-      this.nodes     = 0;
-      this.selDepth  = 0;
-      this.startTime = 0;
-      this.moveTime  = 0;
-
-      /* Board state */
-      this.board    = new Uint8Array(128);
-      this.side     = WHITE;
-      this.castle   = 0;
-      this.ep       = -1;
-      this.halfmove = 0;
-      this.fullmove = 1;
-
-      /* King square cache */
-      this.kingPos  = [SQ['e1'], SQ['e8']];
-
-      /* History stack */
-      this.history  = [];
-      this.hashStack = [];
-
-      /* Killer moves [ply][0..1] */
-      this.killers  = Array.from({length: 128}, () => [0, 0]);
-
-      /* History heuristic [piece][to] */
-      this.histTable = new Int32Array(15 * 128);
-
-      /* Zobrist */
-      this.Z = this._initZobrist();
-
-      /* Transposition table */
-      this.tt = new TranspositionTable();
-
-      this.bestMove  = null;
-
-      this.setFen(START_FEN);
-    }
-
-    /* ── Zobrist ── */
-    _initZobrist() {
-      const rng   = new RNG(0x12345678);
-      const piece = Array.from({length: 15}, () => {
-        const a = new Uint32Array(128);
-        for (let sq = 0; sq < 128; sq++) a[sq] = onBoard(sq) ? rng.next() : 0;
-        return a;
-      });
-      const side   = rng.next();
-      const castle = new Uint32Array(16);
-      for (let i = 0; i < 16; i++) castle[i] = rng.next();
-      const ep = new Uint32Array(128);
-      for (let i = 0; i < 128; i++) ep[i] = onBoard(i) ? rng.next() : 0;
-      return { piece, side, castle, ep };
-    }
-
-    /* ── Communication ── */
-    send(...parts) { postMessage(parts.join(' ').trim()); }
-
-    /* ── FEN ── */
-    clearBoard() {
-      this.board.fill(0);
-      this.side = WHITE; this.castle = 0; this.ep = -1;
-      this.halfmove = 0; this.fullmove = 1;
-      this.history.length = 0; this.hashStack.length = 0;
-      this.kingPos[WHITE] = -1; this.kingPos[BLACK] = -1;
-    }
-
-    setFen(fen) {
-      this.clearBoard();
-      const parts = fen.trim().split(/\s+/);
-      const rows  = parts[0].split('/');
-      let r = 7;
-      for (const row of rows) {
-        let f = 0;
-        for (const ch of row) {
-          if (ch >= '1' && ch <= '8') { f += +ch; continue; }
-          const sq = (r << 4) | f;
-          const p  = CH_PIECE[ch] || EMPTY;
-          this.board[sq] = p;
-          if (p === WK) this.kingPos[WHITE] = sq;
-          if (p === BK) this.kingPos[BLACK] = sq;
-          f++;
-        }
-        r--;
-      }
-      this.side     = parts[1] === 'b' ? BLACK : WHITE;
-      const cstr    = parts[2] || '-';
-      this.castle   = 0;
-      if (cstr.includes('K')) this.castle |= 1;
-      if (cstr.includes('Q')) this.castle |= 2;
-      if (cstr.includes('k')) this.castle |= 4;
-      if (cstr.includes('q')) this.castle |= 8;
-      this.ep       = (parts[3] && parts[3] !== '-') ? uciToSq(parts[3]) : -1;
-      this.halfmove = +(parts[4] || 0);
-      this.fullmove = +(parts[5] || 1);
-      this._recomputeHash();
-      this.hashStack.push(this.hash);
-    }
-
-    getFen() {
-      const rows = [];
-      for (let rk = 7; rk >= 0; rk--) {
-        let row = ''; let emp = 0;
-        for (let fl = 0; fl < 8; fl++) {
-          const p = this.board[(rk << 4) | fl];
-          if (!p) { emp++; continue; }
-          if (emp) { row += emp; emp = 0; }
-          row += PIECE_CH[p];
-        }
-        if (emp) row += emp;
-        rows.push(row);
-      }
-      const c = this.castle
-        ? `${this.castle&1?'K':''}${this.castle&2?'Q':''}${this.castle&4?'k':''}${this.castle&8?'q':''}`
-        : '-';
-      return `${rows.join('/')} ${this.side===WHITE?'w':'b'} ${c} ${this.ep===-1?'-':sqToUci(this.ep)} ${this.halfmove} ${this.fullmove}`;
-    }
-
-    /* ── Incremental Zobrist ── */
-    _recomputeHash() {
-      let h = 0;
-      for (let sq = 0; sq < 128; sq++) {
-        if (!onBoard(sq)) { sq += 7; continue; }
-        const p = this.board[sq];
-        if (p) h ^= this.Z.piece[p][sq];
-      }
-      h ^= this.Z.castle[this.castle];
-      if (this.ep !== -1) h ^= this.Z.ep[this.ep];
-      if (this.side === BLACK) h ^= this.Z.side;
-      this.hash = h >>> 0;
-    }
-
-    /* ── Attack detection ── */
-    isAttacked(sq, byColor) {
-      const board = this.board;
-      /* Pawn */
-      if (byColor === WHITE) {
-        if (onBoard(sq-15) && board[sq-15] === WP) return true;
-        if (onBoard(sq-17) && board[sq-17] === WP) return true;
-      } else {
-        if (onBoard(sq+15) && board[sq+15] === BP) return true;
-        if (onBoard(sq+17) && board[sq+17] === BP) return true;
-      }
-      /* Knight */
-      const kn = byColor === WHITE ? WN : BN;
-      for (const d of KNIGHT_DIR) {
-        const to = sq + d;
-        if (onBoard(to) && board[to] === kn) return true;
-      }
-      /* Sliders */
-      const bi = byColor === WHITE ? WB : BB;
-      const ro = byColor === WHITE ? WR : BR;
-      const qu = byColor === WHITE ? WQ : BQ;
-      for (const d of BISHOP_DIR) {
-        let to = sq + d;
-        while (onBoard(to)) {
-          const p = board[to]; if (p) { if (p===bi||p===qu) return true; break; }
-          to += d;
-        }
-      }
-      for (const d of ROOK_DIR) {
-        let to = sq + d;
-        while (onBoard(to)) {
-          const p = board[to]; if (p) { if (p===ro||p===qu) return true; break; }
-          to += d;
-        }
-      }
-      /* King */
-      const ki = byColor === WHITE ? WK : BK;
-      for (const d of KING_DIR) {
-        const to = sq + d;
-        if (onBoard(to) && board[to] === ki) return true;
-      }
-      return false;
-    }
-
-    inCheck(color) { return this.isAttacked(this.kingPos[color], opponent(color)); }
-
-    /* ── Make / Undo ── */
-    makeMove(m) {
-      const oldCastle = this.castle;
-      const oldEp     = this.ep;
-      const oldHash   = this.hash;
-
-      /* Save state */
-      this.history.push({
-        from: m.from, to: m.to, piece: m.piece, capture: m.capture,
-        promo: m.promo, flags: m.flags,
-        castle: oldCastle, ep: oldEp,
-        halfmove: this.halfmove,
-        fullmove: this.fullmove,
-        hash: oldHash,
-        kingW: this.kingPos[WHITE],
-        kingB: this.kingPos[BLACK],
-      });
-
-      /* Incremental hash: remove moving piece from source */
-      let h = oldHash;
-      h ^= this.Z.piece[m.piece][m.from];
-      h ^= this.Z.castle[oldCastle];
-      if (oldEp !== -1) h ^= this.Z.ep[oldEp];
-
-      /* Halfmove */
-      this.halfmove++;
-      if (m.piece === WP || m.piece === BP || m.capture) this.halfmove = 0;
-
-      /* Remove piece from source */
-      this.board[m.from] = EMPTY;
-
-      /* Capture */
-      if (m.capture && !(m.flags & FLAG_EP)) {
-        h ^= this.Z.piece[m.capture][m.to];
-      }
-
-      /* Place piece (or promotion) on destination */
-      const placed = m.promo || m.piece;
-      this.board[m.to] = placed;
-      h ^= this.Z.piece[placed][m.to];
-
-      /* Update king cache */
-      if (m.piece === WK) this.kingPos[WHITE] = m.to;
-      if (m.piece === BK) this.kingPos[BLACK] = m.to;
-
-      /* En passant capture */
-      this.ep = -1;
-      if (m.flags & FLAG_EP) {
-        const capSq = this.side === WHITE ? m.to - 16 : m.to + 16;
-        h ^= this.Z.piece[this.board[capSq]][capSq];
-        this.board[capSq] = EMPTY;
-      }
-
-      /* Castling rook move */
-      if (m.flags & FLAG_CASTLE) {
-        const [rs, rd] = this._castleRookSquares(m.to);
-        const rook = this.board[rs];
-        h ^= this.Z.piece[rook][rs];
-        h ^= this.Z.piece[rook][rd];
-        this.board[rd] = rook;
-        this.board[rs] = EMPTY;
-      }
-
-      /* Castle rights */
-      if (m.piece === WK) this.castle &= ~3;
-      if (m.piece === BK) this.castle &= ~12;
-      if (m.from === SQ['a1'] || m.to === SQ['a1']) this.castle &= ~2;
-      if (m.from === SQ['h1'] || m.to === SQ['h1']) this.castle &= ~1;
-      if (m.from === SQ['a8'] || m.to === SQ['a8']) this.castle &= ~8;
-      if (m.from === SQ['h8'] || m.to === SQ['h8']) this.castle &= ~4;
-
-      /* New en passant square */
-      if (m.piece === WP && m.to - m.from === 32) this.ep = m.from + 16;
-      if (m.piece === BP && m.from - m.to === 32) this.ep = m.from - 16;
-
-      /* Finalize hash */
-      h ^= this.Z.castle[this.castle];
-      if (this.ep !== -1) h ^= this.Z.ep[this.ep];
-      h ^= this.Z.side;
-      this.hash = h >>> 0;
-
-      if (this.side === BLACK) this.fullmove++;
-      this.side = opponent(this.side);
-      this.hashStack.push(this.hash);
-    }
-
-    _castleRookSquares(kingTo) {
-      /* returns [rookSrc, rookDest] */
-      if (kingTo === SQ['g1']) return [SQ['h1'], SQ['f1']];
-      if (kingTo === SQ['c1']) return [SQ['a1'], SQ['d1']];
-      if (kingTo === SQ['g8']) return [SQ['h8'], SQ['f8']];
-      /* c8 */                  return [SQ['a8'], SQ['d8']];
-    }
-
-    undoMove() {
-      const st = this.history.pop();
-      if (!st) return;
-
-      this.hashStack.pop();
-      this.side     = opponent(this.side);
-      this.castle   = st.castle;
-      this.ep       = st.ep;
-      this.halfmove = st.halfmove;
-      this.fullmove = st.fullmove;
-      this.hash     = st.hash;
-      this.kingPos[WHITE] = st.kingW;
-      this.kingPos[BLACK] = st.kingB;
-
-      this.board[st.from] = st.piece;
-      this.board[st.to]   = st.capture || EMPTY;
-
-      if (st.flags & FLAG_EP) {
-        const capSq = this.side === WHITE ? st.to - 16 : st.to + 16;
-        this.board[capSq] = this.side === WHITE ? BP : WP;
-        this.board[st.to] = EMPTY;
-      }
-
-      if (st.flags & FLAG_CASTLE) {
-        const [rs, rd] = this._castleRookSquares(st.to);
-        this.board[rs] = this.board[rd];
-        this.board[rd] = EMPTY;
-      }
-    }
-
-    /* ── Null move ── */
-    makeNullMove() {
-      const oldEp = this.ep;
-      this.history.push({
-        from:-1, to:-1, piece:0, capture:0, promo:0, flags:0,
-        castle: this.castle, ep: oldEp,
-        halfmove: this.halfmove, fullmove: this.fullmove,
-        hash: this.hash,
-        kingW: this.kingPos[WHITE], kingB: this.kingPos[BLACK],
-        isNull: true,
-      });
-      let h = this.hash;
-      if (oldEp !== -1) h ^= this.Z.ep[oldEp];
-      this.ep = -1;
-      h ^= this.Z.side;
-      this.hash = h >>> 0;
-      this.halfmove++;
-      if (this.side === BLACK) this.fullmove++;
-      this.side = opponent(this.side);
-      this.hashStack.push(this.hash);
-    }
-
-    undoNullMove() { this.undoMove(); }
-
-    /* ── Draw detection ── */
-    isDraw() {
-      if (this.halfmove >= 100) return true;
-      const cur = this.hash;
-      let reps = 0;
-      /* Walk back — stop early on captures/pawn moves (halfmove resets) */
-      const limit = Math.max(0, this.hashStack.length - this.halfmove - 1);
-      for (let i = this.hashStack.length - 1; i >= limit; i--) {
-        if (this.hashStack[i] === cur) { if (++reps >= 2) return true; }
-      }
-      return false;
-    }
-
-    isInsufficientMaterial() {
-      let wn=0,wb=0,bn=0,bb=0;
-      for (let sq=0;sq<128;sq++) {
-        if (!onBoard(sq)){sq+=7;continue;}
-        const p=this.board[sq];
-        if (!p) continue;
-        if (p===WP||p===BP||p===WR||p===BR||p===WQ||p===BQ) return false;
-        if (p===WN) wn++;
-        if (p===WB) wb++;
-        if (p===BN) bn++;
-        if (p===BB) bb++;
-      }
-      if (wn+wb+bn+bb===0) return true;
-      if (wn+wb<=1&&bn+bb===0) return true;
-      if (bn+bb<=1&&wn+wb===0) return true;
-      return false;
-    }
-
-    /* ── Move generation ── */
-    genMoves(capturesOnly = false) {
-      const moves = [];
-      const us    = this.side;
-      const board = this.board;
-
-      for (let sq = 0; sq < 128; sq++) {
-        if (!onBoard(sq)) { sq += 7; continue; }
-        const p = board[sq];
-        if (!p) continue;
-        if (us === WHITE ? !isWhite(p) : !isBlack(p)) continue;
-
-        if (p === WP || p === BP) {
-          this._genPawnMoves(sq, p, us, moves, capturesOnly);
-          continue;
-        }
-        if (p === WN || p === BN) {
-          for (const d of KNIGHT_DIR) {
-            const to = sq + d;
-            if (!onBoard(to)) continue;
-            const tp = board[to];
-            if (!tp) { if (!capturesOnly) moves.push(this._mk(sq,to,p,EMPTY,0,0)); }
-            else if (colorOf(tp) !== us) moves.push(this._mk(sq,to,p,tp,0,FLAG_CAPTURE));
+  
+  toFen() {
+    let fen = '';
+    for (let rank = 7; rank >= 0; rank--) {
+      let empty = 0;
+      for (let file = 0; file < 8; file++) {
+        const sq = rank * 8 + file;
+        const piece = this.getPieceAt(sq);
+        if (piece) {
+          if (empty > 0) {
+            fen += empty;
+            empty = 0;
           }
-          continue;
+          const symbol = piece.color === 'w' ? piece.type : piece.type.toLowerCase();
+          fen += symbol;
+        } else {
+          empty++;
         }
-        if (p === WB || p === BB) { this._addSlider(sq,p,us,BISHOP_DIR,moves,capturesOnly); continue; }
-        if (p === WR || p === BR) { this._addSlider(sq,p,us,ROOK_DIR,  moves,capturesOnly); continue; }
-        if (p === WQ || p === BQ) {
-          this._addSlider(sq,p,us,BISHOP_DIR,moves,capturesOnly);
-          this._addSlider(sq,p,us,ROOK_DIR,  moves,capturesOnly);
-          continue;
+      }
+      if (empty > 0) fen += empty;
+      if (rank > 0) fen += '/';
+    }
+    
+    fen += ` ${this.side} `;
+    
+    let castling = '';
+    if (this.castling.w.k) castling += 'K';
+    if (this.castling.w.q) castling += 'Q';
+    if (this.castling.b.k) castling += 'k';
+    if (this.castling.b.q) castling += 'q';
+    fen += castling || '-';
+    
+    fen += ' ';
+    if (this.ep >= 0) {
+      const file = this.ep % 8;
+      const rank = Math.floor(this.ep / 8);
+      fen += String.fromCharCode(97 + file) + (rank + 1);
+    } else {
+      fen += '-';
+    }
+    
+    fen += ` ${this.halfmove} ${this.fullmove}`;
+    return fen;
+  }
+  
+  getPieceAt(sq) {
+    const bb = Bitboard.SQ[sq];
+    for (let color of ['w', 'b']) {
+      for (let piece of ['P', 'N', 'B', 'R', 'Q', 'K']) {
+        if (this.pieces[color][piece] & bb) {
+          return { type: piece, color };
         }
-        if (p === WK || p === BK) { this._genKingMoves(sq,p,us,moves,capturesOnly); }
       }
-
-      /* Legal filter */
-      const legal = [];
-      for (const m of moves) {
-        this.makeMove(m);
-        if (!this.inCheck(us)) legal.push(m);
-        this.undoMove();
+    }
+    return null;
+  }
+  
+  updateOccupancy() {
+    this.occupied = 0n;
+    for (let color of ['w', 'b']) {
+      for (let piece of ['P', 'N', 'B', 'R', 'Q', 'K']) {
+        this.occupied |= this.pieces[color][piece];
       }
-      return legal;
     }
-
-    _mk(from,to,piece,capture,promo,flags) {
-      return {from,to,piece,capture,promo,flags};
+    this.empty = ~this.occupied & 0xFFFFFFFFFFFFFFFFn;
+  }
+  
+  generateAttackMaps() {
+    this.attackMaps = { w: 0n, b: 0n };
+    
+    for (let color of ['w', 'b']) {
+      const opponent = color === 'w' ? 'b' : 'w';
+      let attacks = 0n;
+      
+      // Pawn attacks
+      const pawns = this.pieces[color].P;
+      if (color === 'w') {
+        attacks |= (pawns << 7n) & ~Bitboard.FILES[7];
+        attacks |= (pawns << 9n) & ~Bitboard.FILES[0];
+      } else {
+        attacks |= (pawns >> 7n) & ~Bitboard.FILES[0];
+        attacks |= (pawns >> 9n) & ~Bitboard.FILES[7];
+      }
+      
+      // Knight attacks
+      let knights = this.pieces[color].N;
+      while (knights) {
+        const sq = Bitboard.bitscan(knights);
+        knights &= knights - 1n;
+        attacks |= this.generateKnightAttacks(sq);
+      }
+      
+      // Bishop attacks
+      let bishops = this.pieces[color].B;
+      while (bishops) {
+        const sq = Bitboard.bitscan(bishops);
+        bishops &= bishops - 1n;
+        attacks |= this.generateSlidingAttacks(sq, this.generateBishopMask(sq), this.occupied);
+      }
+      
+      // Rook attacks
+      let rooks = this.pieces[color].R;
+      while (rooks) {
+        const sq = Bitboard.bitscan(rooks);
+        rooks &= rooks - 1n;
+        attacks |= this.generateSlidingAttacks(sq, this.generateRookMask(sq), this.occupied);
+      }
+      
+      // Queen attacks
+      let queens = this.pieces[color].Q;
+      while (queens) {
+        const sq = Bitboard.bitscan(queens);
+        queens &= queens - 1n;
+        attacks |= this.generateSlidingAttacks(sq, this.generateBishopMask(sq), this.occupied) |
+                   this.generateSlidingAttacks(sq, this.generateRookMask(sq), this.occupied);
+      }
+      
+      // King attacks
+      const kingSq = this.kingSquares[color];
+      attacks |= this.generateKingAttacks(kingSq);
+      
+      this.attackMaps[color] = attacks;
     }
+  }
+  
+  generateKnightAttacks(sq) {
+    const bb = Bitboard.SQ[sq];
+    let attacks = 0n;
+    
+    if ((bb << 17n) & ~Bitboard.FILES[0]) attacks |= bb << 17n;
+    if ((bb << 15n) & ~Bitboard.FILES[7]) attacks |= bb << 15n;
+    if ((bb << 10n) & ~Bitboard.FILES[0] & ~Bitboard.FILES[1]) attacks |= bb << 10n;
+    if ((bb << 6n) & ~Bitboard.FILES[6] & ~Bitboard.FILES[7]) attacks |= bb << 6n;
+    if ((bb >> 6n) & ~Bitboard.FILES[0] & ~Bitboard.FILES[1]) attacks |= bb >> 6n;
+    if ((bb >> 10n) & ~Bitboard.FILES[6] & ~Bitboard.FILES[7]) attacks |= bb >> 10n;
+    if ((bb >> 15n) & ~Bitboard.FILES[0]) attacks |= bb >> 15n;
+    if ((bb >> 17n) & ~Bitboard.FILES[7]) attacks |= bb >> 17n;
+    
+    return attacks;
+  }
+  
+  generateKingAttacks(sq) {
+    const bb = Bitboard.SQ[sq];
+    let attacks = 0n;
+    
+    if (bb << 8n) attacks |= bb << 8n;
+    if (bb >> 8n) attacks |= bb >> 8n;
+    if ((bb << 1n) & ~Bitboard.FILES[0]) attacks |= bb << 1n;
+    if ((bb >> 1n) & ~Bitboard.FILES[7]) attacks |= bb >> 1n;
+    if ((bb << 7n) & ~Bitboard.FILES[7]) attacks |= bb << 7n;
+    if ((bb << 9n) & ~Bitboard.FILES[0]) attacks |= bb << 9n;
+    if ((bb >> 7n) & ~Bitboard.FILES[0]) attacks |= bb >> 7n;
+    if ((bb >> 9n) & ~Bitboard.FILES[7]) attacks |= bb >> 9n;
+    
+    return attacks;
+  }
+  
+  generateBishopMask(sq) {
+    const rank = Math.floor(sq / 8);
+    const file = sq % 8;
+    let mask = 0n;
+    
+    for (let r = rank + 1, f = file + 1; r < 7 && f < 7; r++, f++) {
+      mask |= Bitboard.SQ[r * 8 + f];
+    }
+    for (let r = rank - 1, f = file + 1; r > 0 && f < 7; r--, f++) {
+      mask |= Bitboard.SQ[r * 8 + f];
+    }
+    for (let r = rank + 1, f = file - 1; r < 7 && f > 0; r++, f--) {
+      mask |= Bitboard.SQ[r * 8 + f];
+    }
+    for (let r = rank - 1, f = file - 1; r > 0 && f > 0; r--, f--) {
+      mask |= Bitboard.SQ[r * 8 + f];
+    }
+    
+    return mask;
+  }
+  
+  generateRookMask(sq) {
+    const rank = Math.floor(sq / 8);
+    const file = sq % 8;
+    let mask = 0n;
+    
+    for (let r = rank + 1; r < 7; r++) mask |= Bitboard.SQ[r * 8 + file];
+    for (let r = rank - 1; r > 0; r--) mask |= Bitboard.SQ[r * 8 + file];
+    for (let f = file + 1; f < 7; f++) mask |= Bitboard.SQ[rank * 8 + f];
+    for (let f = file - 1; f > 0; f--) mask |= Bitboard.SQ[rank * 8 + f];
+    
+    return mask;
+  }
+  
+  generateSlidingAttacks(sq, mask, occupied) {
+    // For now, generate attacks on the fly - magic bitboards would be more efficient
+    return this.generateSlidingAttacksOnFly(sq);
+  }
+  
+  generateSlidingAttacksOnFly(sq) {
+    const rank = Math.floor(sq / 8);
+    const file = sq % 8;
+    let attacks = 0n;
+    const opponent = this.side === 'w' ? 'b' : 'w';
+    
+    // Bishop-like moves (diagonals)
+    for (let r = rank + 1, f = file + 1; r < 8 && f < 8; r++, f++) {
+      const targetSq = r * 8 + f;
+      attacks |= Bitboard.SQ[targetSq];
+      if (this.occupied & Bitboard.SQ[targetSq]) break;
+    }
+    for (let r = rank - 1, f = file + 1; r >= 0 && f < 8; r--, f++) {
+      const targetSq = r * 8 + f;
+      attacks |= Bitboard.SQ[targetSq];
+      if (this.occupied & Bitboard.SQ[targetSq]) break;
+    }
+    for (let r = rank + 1, f = file - 1; r < 8 && f >= 0; r++, f--) {
+      const targetSq = r * 8 + f;
+      attacks |= Bitboard.SQ[targetSq];
+      if (this.occupied & Bitboard.SQ[targetSq]) break;
+    }
+    for (let r = rank - 1, f = file - 1; r >= 0 && f >= 0; r--, f--) {
+      const targetSq = r * 8 + f;
+      attacks |= Bitboard.SQ[targetSq];
+      if (this.occupied & Bitboard.SQ[targetSq]) break;
+    }
+    
+    // Rook-like moves (orthogonal)
+    for (let r = rank + 1; r < 8; r++) {
+      const targetSq = r * 8 + file;
+      attacks |= Bitboard.SQ[targetSq];
+      if (this.occupied & Bitboard.SQ[targetSq]) break;
+    }
+    for (let r = rank - 1; r >= 0; r--) {
+      const targetSq = r * 8 + file;
+      attacks |= Bitboard.SQ[targetSq];
+      if (this.occupied & Bitboard.SQ[targetSq]) break;
+    }
+    for (let f = file + 1; f < 8; f++) {
+      const targetSq = rank * 8 + f;
+      attacks |= Bitboard.SQ[targetSq];
+      if (this.occupied & Bitboard.SQ[targetSq]) break;
+    }
+    for (let f = file - 1; f >= 0; f--) {
+      const targetSq = rank * 8 + f;
+      attacks |= Bitboard.SQ[targetSq];
+      if (this.occupied & Bitboard.SQ[targetSq]) break;
+    }
+    
+    return attacks;
+  }
+  
+  isSquareAttacked(sq, attacker) {
+    return (this.attackMaps[attacker] & Bitboard.SQ[sq]) !== 0n;
+  }
+  
+  isInCheck(color) {
+    const kingSq = this.kingSquares[color];
+    const opponent = color === 'w' ? 'b' : 'w';
+    return this.isSquareAttacked(kingSq, opponent);
+  }
+}
 
-    _genPawnMoves(sq,p,us,moves,capturesOnly) {
-      const board   = this.board;
-      const up      = p===WP ? 16 : -16;
-      const rank    = sq >> 4;
-      const sRank   = p===WP ? 1 : 6;
-      const pRank   = p===WP ? 6 : 1;
-      const promos  = p===WP ? [WQ,WR,WB,WN] : [BQ,BR,BB,BN];
-      const capDirs = p===WP ? [15,17] : [-15,-17];
+// ============================================================================
+// 3. MOVE REPRESENTATION
+// ============================================================================
 
-      if (!capturesOnly) {
-        const one = sq + up;
-        if (onBoard(one) && !board[one]) {
-          if (rank === pRank) {
-            for (const pr of promos) moves.push(this._mk(sq,one,p,EMPTY,pr,FLAG_PROMO));
-          } else {
-            moves.push(this._mk(sq,one,p,EMPTY,0,0));
-            if (rank === sRank) {
-              const two = sq + up + up;
-              if (!board[two]) moves.push(this._mk(sq,two,p,EMPTY,0,0));
+class Move {
+  constructor(from, to, promotion = null, capture = null, isCastling = false) {
+    this.from = from;
+    this.to = to;
+    this.promotion = promotion;
+    this.capture = capture;
+    this.isCastling = isCastling;
+    this.score = 0; // For move ordering
+  }
+  
+  toString() {
+    const fromFile = String.fromCharCode(97 + (this.from % 8));
+    const fromRank = Math.floor(this.from / 8) + 1;
+    const toFile = String.fromCharCode(97 + (this.to % 8));
+    const toRank = Math.floor(this.to / 8) + 1;
+    
+    let moveStr = `${fromFile}${fromRank}${toFile}${toRank}`;
+    if (this.promotion) {
+      moveStr += this.promotion.toLowerCase();
+    }
+    return moveStr;
+  }
+}
+
+// ============================================================================
+// 4. MOVE GENERATION
+// ============================================================================
+
+class MoveGenerator {
+  constructor(board) {
+    this.board = board;
+  }
+  
+  generateLegalMoves() {
+    const pseudoLegal = this.generatePseudoLegalMoves();
+    const legal = [];
+    
+    for (let move of pseudoLegal) {
+      if (this.isLegalMove(move)) {
+        legal.push(move);
+      }
+    }
+    
+    return legal;
+  }
+  
+  generatePseudoLegalMoves() {
+    const moves = [];
+    const color = this.board.side;
+    const opponent = color === 'w' ? 'b' : 'w';
+    
+    // Generate moves for each piece type
+    this.generatePawnMoves(moves, color);
+    this.generateKnightMoves(moves, color);
+    this.generateBishopMoves(moves, color);
+    this.generateRookMoves(moves, color);
+    this.generateQueenMoves(moves, color);
+    this.generateKingMoves(moves, color);
+    
+    return moves;
+  }
+  
+  generatePawnMoves(moves, color) {
+    const pawns = this.board.pieces[color].P;
+    const opponent = color === 'w' ? 'b' : 'w';
+    const forward = color === 'w' ? 8 : -8;
+    const startRank = color === 'w' ? 1 : 6;
+    const promotionRank = color === 'w' ? 7 : 0;
+    
+    let p = pawns;
+    while (p) {
+      const from = Bitboard.bitscan(p);
+      p &= p - 1n;
+      
+      const rank = Math.floor(from / 8);
+      const file = from % 8;
+      
+      // Single push
+      const to = from + forward;
+      if (to >= 0 && to < 64 && !(this.board.occupied & Bitboard.SQ[to])) {
+        if (rank === promotionRank) {
+          // Promotion
+          for (let promo of ['Q', 'R', 'B', 'N']) {
+            moves.push(new Move(from, to, promo));
+          }
+        } else {
+          moves.push(new Move(from, to));
+          
+          // Double push from starting rank
+          if (rank === startRank) {
+            const to2 = from + 2 * forward;
+            if (!(this.board.occupied & Bitboard.SQ[to2])) {
+              moves.push(new Move(from, to2));
             }
           }
         }
       }
-
-      for (const d of capDirs) {
-        const to = sq + d;
-        if (!onBoard(to)) continue;
-        const tp = board[to];
-        if (tp && colorOf(tp) !== us) {
-          if (rank === pRank) {
-            for (const pr of promos) moves.push(this._mk(sq,to,p,tp,pr,FLAG_CAPTURE|FLAG_PROMO));
+      
+      // Captures
+      const captureLeft = from + forward - 1;
+      const captureRight = from + forward + 1;
+      
+      if (file > 0 && captureLeft >= 0 && captureLeft < 64) {
+        if (this.board.pieces[opponent].P & Bitboard.SQ[captureLeft] ||
+            captureLeft === this.board.ep) {
+          if (rank === promotionRank) {
+            for (let promo of ['Q', 'R', 'B', 'N']) {
+              moves.push(new Move(from, captureLeft, promo));
+            }
           } else {
-            moves.push(this._mk(sq,to,p,tp,0,FLAG_CAPTURE));
+            moves.push(new Move(from, captureLeft));
           }
         }
-        if (to === this.ep) {
-          const epCap = p===WP ? BP : WP;
-          moves.push(this._mk(sq,to,p,epCap,0,FLAG_CAPTURE|FLAG_EP));
+      }
+      
+      if (file < 7 && captureRight >= 0 && captureRight < 64) {
+        if (this.board.pieces[opponent].P & Bitboard.SQ[captureRight] ||
+            captureRight === this.board.ep) {
+          if (rank === promotionRank) {
+            for (let promo of ['Q', 'R', 'B', 'N']) {
+              moves.push(new Move(from, captureRight, promo));
+            }
+          } else {
+            moves.push(new Move(from, captureRight));
+          }
         }
       }
     }
-
-    _addSlider(sq,p,us,dirs,moves,capturesOnly) {
-      const board = this.board;
-      for (const d of dirs) {
-        let to = sq + d;
-        while (onBoard(to)) {
-          const tp = board[to];
-          if (!tp) {
-            if (!capturesOnly) moves.push(this._mk(sq,to,p,EMPTY,0,0));
-          } else {
-            if (colorOf(tp) !== us) moves.push(this._mk(sq,to,p,tp,0,FLAG_CAPTURE));
+  }
+  
+  generateKnightMoves(moves, color) {
+    let knights = this.board.pieces[color].N;
+    while (knights) {
+      const from = Bitboard.bitscan(knights);
+      knights &= knights - 1n;
+      
+      const attacks = this.board.generateKnightAttacks(from);
+      let a = attacks & ~this.board.pieces[color].P & ~this.board.pieces[color].N & 
+              ~this.board.pieces[color].B & ~this.board.pieces[color].R & 
+              ~this.board.pieces[color].Q & ~this.board.pieces[color].K;
+      
+      while (a) {
+        const to = Bitboard.bitscan(a);
+        a &= a - 1n;
+        const capture = this.board.getPieceAt(to);
+        moves.push(new Move(from, to, null, capture));
+      }
+    }
+  }
+  
+  generateBishopMoves(moves, color) {
+    let bishops = this.board.pieces[color].B;
+    while (bishops) {
+      const from = Bitboard.bitscan(bishops);
+      bishops &= bishops - 1n;
+      
+      const attacks = this.board.generateSlidingAttacksOnFly(from);
+      let a = attacks & ~this.board.pieces[color].P & ~this.board.pieces[color].N & 
+              ~this.board.pieces[color].B & ~this.board.pieces[color].R & 
+              ~this.board.pieces[color].Q & ~this.board.pieces[color].K;
+      
+      while (a) {
+        const to = Bitboard.bitscan(a);
+        a &= a - 1n;
+        const capture = this.board.getPieceAt(to);
+        moves.push(new Move(from, to, null, capture));
+      }
+    }
+  }
+  
+  generateRookMoves(moves, color) {
+    let rooks = this.board.pieces[color].R;
+    while (rooks) {
+      const from = Bitboard.bitscan(rooks);
+      rooks &= rooks - 1n;
+      
+      const attacks = this.board.generateSlidingAttacksOnFly(from);
+      let a = attacks & ~this.board.pieces[color].P & ~this.board.pieces[color].N & 
+              ~this.board.pieces[color].B & ~this.board.pieces[color].R & 
+              ~this.board.pieces[color].Q & ~this.board.pieces[color].K;
+      
+      while (a) {
+        const to = Bitboard.bitscan(a);
+        a &= a - 1n;
+        const capture = this.board.getPieceAt(to);
+        moves.push(new Move(from, to, null, capture));
+      }
+    }
+  }
+  
+  generateQueenMoves(moves, color) {
+    let queens = this.board.pieces[color].Q;
+    while (queens) {
+      const from = Bitboard.bitscan(queens);
+      queens &= queens - 1n;
+      
+      const attacks = this.board.generateSlidingAttacksOnFly(from);
+      let a = attacks & ~this.board.pieces[color].P & ~this.board.pieces[color].N & 
+              ~this.board.pieces[color].B & ~this.board.pieces[color].R & 
+              ~this.board.pieces[color].Q & ~this.board.pieces[color].K;
+      
+      while (a) {
+        const to = Bitboard.bitscan(a);
+        a &= a - 1n;
+        const capture = this.board.getPieceAt(to);
+        moves.push(new Move(from, to, null, capture));
+      }
+    }
+  }
+  
+  generateKingMoves(moves, color) {
+    const from = this.board.kingSquares[color];
+    const attacks = this.board.generateKingAttacks(from);
+    
+    let a = attacks & ~this.board.pieces[color].P & ~this.board.pieces[color].N & 
+            ~this.board.pieces[color].B & ~this.board.pieces[color].R & 
+            ~this.board.pieces[color].Q & ~this.board.pieces[color].K;
+    
+    while (a) {
+      const to = Bitboard.bitscan(a);
+      a &= a - 1n;
+      const capture = this.board.getPieceAt(to);
+      moves.push(new Move(from, to, null, capture));
+    }
+    
+    // Castling
+    if (!this.board.isInCheck(color)) {
+      this.generateCastlingMoves(moves, color);
+    }
+  }
+  
+  generateCastlingMoves(moves, color) {
+    const rank = color === 'w' ? 0 : 7;
+    const kingFrom = rank * 8 + 4;
+    
+    // Kingside
+    if (this.board.castling[color].k) {
+      const path = Bitboard.SQ[rank * 8 + 5] | Bitboard.SQ[rank * 8 + 6];
+      const between = Bitboard.SQ[rank * 8 + 5] | Bitboard.SQ[rank * 8 + 6];
+      
+      if ((this.board.occupied & between) === 0n) {
+        const opponent = color === 'w' ? 'b' : 'w';
+        let safe = true;
+        for (let sq of [kingFrom, rank * 8 + 5, rank * 8 + 6]) {
+          if (this.board.isSquareAttacked(sq, opponent)) {
+            safe = false;
             break;
           }
-          to += d;
+        }
+        if (safe) {
+          moves.push(new Move(kingFrom, rank * 8 + 6));
         }
       }
     }
-
-    _genKingMoves(sq,p,us,moves,capturesOnly) {
-      const board = this.board;
-      const opp   = opponent(us);
-      for (const d of KING_DIR) {
-        const to = sq + d;
-        if (!onBoard(to)) continue;
-        const tp = board[to];
-        if (!tp) { if (!capturesOnly) moves.push(this._mk(sq,to,p,EMPTY,0,0)); }
-        else if (colorOf(tp) !== us) moves.push(this._mk(sq,to,p,tp,0,FLAG_CAPTURE));
-      }
-      if (capturesOnly) return;
-      /* Castling */
-      const inChk = this.inCheck(us);
-      if (!inChk) {
-        if (us === WHITE && sq === SQ['e1']) {
-          if ((this.castle&1)&&!board[SQ['f1']]&&!board[SQ['g1']]&&
-              !this.isAttacked(SQ['f1'],opp)&&!this.isAttacked(SQ['g1'],opp))
-            moves.push(this._mk(sq,SQ['g1'],p,EMPTY,0,FLAG_CASTLE));
-          if ((this.castle&2)&&!board[SQ['d1']]&&!board[SQ['c1']]&&!board[SQ['b1']]&&
-              !this.isAttacked(SQ['d1'],opp)&&!this.isAttacked(SQ['c1'],opp))
-            moves.push(this._mk(sq,SQ['c1'],p,EMPTY,0,FLAG_CASTLE));
-        }
-        if (us === BLACK && sq === SQ['e8']) {
-          if ((this.castle&4)&&!board[SQ['f8']]&&!board[SQ['g8']]&&
-              !this.isAttacked(SQ['f8'],opp)&&!this.isAttacked(SQ['g8'],opp))
-            moves.push(this._mk(sq,SQ['g8'],p,EMPTY,0,FLAG_CASTLE));
-          if ((this.castle&8)&&!board[SQ['d8']]&&!board[SQ['c8']]&&!board[SQ['b8']]&&
-              !this.isAttacked(SQ['d8'],opp)&&!this.isAttacked(SQ['c8'],opp))
-            moves.push(this._mk(sq,SQ['c8'],p,EMPTY,0,FLAG_CASTLE));
-        }
-      }
-    }
-
-    /* ── Move helpers ── */
-    moveToUci(m) {
-      if (!m) return '0000';
-      const base = sqToUci(m.from) + sqToUci(m.to);
-      return (m.flags & FLAG_PROMO) ? base + (PIECE_CH[m.promo]||'q').toLowerCase() : base;
-    }
-
-    findMoveByUci(uci) {
-      const moves = this.genMoves(false);
-      for (const m of moves) {
-        if (this.moveToUci(m) === uci) return m;
-        if ((m.flags & FLAG_PROMO) && uci.length === 4 && this.moveToUci(m).slice(0,4) === uci) return m;
-      }
-      return null;
-    }
-
-    findMoveByEncoded(enc) {
-      if (!enc) return null;
-      const dec = TranspositionTable.decodeMove(enc);
-      if (!dec) return null;
-      const moves = this.genMoves(false);
-      for (const m of moves) {
-        if (m.from === dec.from && m.to === dec.to &&
-           (m.promo || 0) === (dec.promo || 0)) return m;
-      }
-      return null;
-    }
-
-    /* ── Evaluation ── */
-    sq128To64(sq) { return ((sq >> 4) << 3) | (sq & 7); }
-    mirror64(i)   { return ((7-(i>>3))<<3)|(i&7); }
-
-    _pst(p, sq) {
-      const i = this.sq128To64(sq);
-      const j = isWhite(p) ? i : this.mirror64(i);
-      if (p===WP||p===BP) return PST_PAWN[j];
-      if (p===WN||p===BN) return PST_KNIGHT[j];
-      if (p===WB||p===BB) return PST_BISHOP[j];
-      if (p===WR||p===BR) return PST_ROOK[j];
-      if (p===WQ||p===BQ) return PST_QUEEN[j];
-      if (p===WK||p===BK) return PST_KING_MG[j];
-      return 0;
-    }
-
-    evaluate() {
-      if (this.isInsufficientMaterial()) return 0;
-      let score = 0;
-      const board = this.board;
-      for (let sq = 0; sq < 128; sq++) {
-        if (!onBoard(sq)) { sq += 7; continue; }
-        const p = board[sq];
-        if (!p) continue;
-        const v = (PIECE_VALUE[p]||0) + this._pst(p,sq);
-        score += isWhite(p) ? v : -v;
-      }
-      /* Tempo bonus */
-      score += this.side === WHITE ? 10 : -10;
-      return this.side === WHITE ? score : -score;
-    }
-
-    /* ── Move ordering ── */
-    _moveScore(m, ttBestEnc, ply) {
-      const enc = TranspositionTable.encodeMove(m);
-      if (enc === ttBestEnc) return 2000000;
-      if (m.flags & FLAG_CAPTURE) {
-        const gain = (PIECE_VALUE[m.capture]||0) - (PIECE_VALUE[m.piece]||0);
-        return 1000000 + gain;
-      }
-      if (m.flags & FLAG_PROMO) return 900000;
-      const killers = this.killers[ply] || [];
-      if (enc === killers[0]) return 800000;
-      if (enc === killers[1]) return 700000;
-      return this.histTable[(m.piece << 7) | m.to] | 0;
-    }
-
-    orderMoves(moves, ttBestEnc, ply) {
-      for (const m of moves) m._score = this._moveScore(m, ttBestEnc, ply);
-      moves.sort((a, b) => b._score - a._score);
-    }
-
-    storeKiller(m, ply) {
-      const enc = TranspositionTable.encodeMove(m);
-      const k   = this.killers[ply];
-      if (enc !== k[0]) { k[1] = k[0]; k[0] = enc; }
-    }
-
-    updateHistory(m, depth) {
-      const idx = (m.piece << 7) | m.to;
-      this.histTable[idx] = Math.min(this.histTable[idx] + depth * depth, 20000);
-    }
-
-    hasNonPawnMaterial(color) {
-      const lo = color === WHITE ? WN : BN;
-      const hi = color === WHITE ? WQ : BQ;
-      for (let sq=0;sq<128;sq++) {
-        if (!onBoard(sq)){sq+=7;continue;}
-        const p=this.board[sq];
-        if (p>=lo&&p<=hi) return true;
-      }
-      return false;
-    }
-
-    /* ── Quiescence ── */
-    qsearch(alpha, beta, ply) {
-      if (this.stop) return alpha;
-      this._checkTime();
-      if (this.stop) return alpha;
-      if (this.isDraw()||this.isInsufficientMaterial()) return 0;
-
-      this.nodes++;
-      this.selDepth = Math.max(this.selDepth, ply);
-
-      const stand = this.evaluate();
-      if (stand >= beta) return beta;
-      if (stand > alpha) alpha = stand;
-
-      const moves = this.genMoves(true);
-      const ttBest = this.tt.getBestMove(this.hash);
-      this.orderMoves(moves, ttBest, ply);
-
-      for (const m of moves) {
-        /* Delta pruning */
-        const gain = (PIECE_VALUE[m.capture]||0) + (m.promo ? PIECE_VALUE[m.promo]||0 : 0);
-        if (stand + gain + 200 < alpha) continue;
-
-        this.makeMove(m);
-        const score = -this.qsearch(-beta, -alpha, ply+1);
-        this.undoMove();
-        if (this.stop) return alpha;
-        if (score >= beta) return beta;
-        if (score > alpha) alpha = score;
-      }
-      return alpha;
-    }
-
-    /* ── Negamax + PVS ── */
-    negamax(depth, alpha, beta, ply, allowNull = true) {
-      if (this.stop) return 0;
-      this._checkTime();
-      if (this.stop) return 0;
-
-      const isPV = beta - alpha > 1;
-      this.nodes++;
-      this.selDepth = Math.max(this.selDepth, ply);
-
-      if (this.isDraw()||this.isInsufficientMaterial()) return 0;
-
-      const inChk = this.inCheck(this.side);
-
-      /* Check extension */
-      if (inChk) depth++;
-
-      if (depth <= 0) return this.qsearch(alpha, beta, ply);
-
-      /* Mate distance pruning */
-      const mateVal = MATE - ply;
-      if (alpha < -mateVal) alpha = -mateVal;
-      if (beta  >  mateVal) beta  =  mateVal;
-      if (alpha >= beta) return alpha;
-
-      /* TT probe */
-      const ttScore = this.tt.probe(this.hash, depth, alpha, beta);
-      if (!isPV && ttScore !== null) return ttScore;
-      const ttBestEnc = this.tt.getBestMove(this.hash);
-
-      /* Null-move pruning */
-      if (allowNull && !isPV && depth >= 3 && !inChk && this.hasNonPawnMaterial(this.side)) {
-        const R = depth >= 6 ? 4 : 3;
-        this.makeNullMove();
-        const nmScore = -this.negamax(depth - 1 - R, -beta, -beta+1, ply+1, false);
-        this.undoNullMove();
-        if (this.stop) return 0;
-        if (nmScore >= beta) return beta;
-      }
-
-      /* Razoring */
-      if (!isPV && !inChk && depth <= 2) {
-        const razor = this.evaluate() + 300 * depth;
-        if (razor < alpha) {
-          const q = this.qsearch(alpha, beta, ply);
-          if (q < alpha) return alpha;
-        }
-      }
-
-      const moves = this.genMoves(false);
-      if (moves.length === 0) return inChk ? -MATE + ply : 0;
-
-      this.orderMoves(moves, ttBestEnc, ply);
-
-      const alpha0 = alpha;
-      let bestScore = -INF;
-      let bestMove  = null;
-      let legalIdx  = 0;
-
-      for (const m of moves) {
-        this.makeMove(m);
-        let score;
-
-        if (legalIdx === 0) {
-          /* PV node: full-window */
-          score = -this.negamax(depth-1, -beta, -alpha, ply+1, true);
-        } else {
-          /* LMR */
-          let newDepth = depth - 1;
-          let doLMR    = false;
-          if (depth >= 3 && legalIdx >= 3 && !inChk &&
-              !(m.flags & (FLAG_CAPTURE|FLAG_PROMO|FLAG_EP))) {
-            doLMR    = true;
-            newDepth = Math.max(1, depth - 1 - Math.floor(Math.sqrt(legalIdx)));
-          }
-
-          /* Zero-window search */
-          score = -this.negamax(newDepth, -alpha-1, -alpha, ply+1, true);
-
-          /* Re-search if LMR failed high */
-          if (!this.stop && doLMR && score > alpha) {
-            score = -this.negamax(depth-1, -alpha-1, -alpha, ply+1, true);
-          }
-
-          /* Re-search full window for PV */
-          if (!this.stop && score > alpha && score < beta) {
-            score = -this.negamax(depth-1, -beta, -alpha, ply+1, true);
+    
+    // Queenside
+    if (this.board.castling[color].q) {
+      const between = Bitboard.SQ[rank * 8 + 1] | Bitboard.SQ[rank * 8 + 2] | Bitboard.SQ[rank * 8 + 3];
+      
+      if ((this.board.occupied & between) === 0n) {
+        const opponent = color === 'w' ? 'b' : 'w';
+        let safe = true;
+        for (let sq of [kingFrom, rank * 8 + 3, rank * 8 + 2]) {
+          if (this.board.isSquareAttacked(sq, opponent)) {
+            safe = false;
+            break;
           }
         }
-
-        this.undoMove();
-        if (this.stop) return 0;
-
-        legalIdx++;
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestMove  = m;
+        if (safe) {
+          moves.push(new Move(kingFrom, rank * 8 + 2));
         }
+      }
+    }
+  }
+  
+  isLegalMove(move) {
+    // Make move
+    const undo = this.makeMove(move);
+    
+    // Check if king is in check
+    const inCheck = this.board.isInCheck(this.board.side === 'w' ? 'b' : 'w');
+    
+    // Undo move
+    this.undoMove(move, undo);
+    
+    return !inCheck;
+  }
+  
+  makeMove(move) {
+    const color = this.board.side;
+    const opponent = color === 'w' ? 'b' : 'w';
+    
+    const undo = {
+      capture: null,
+      castling: JSON.parse(JSON.stringify(this.board.castling)),
+      ep: this.board.ep,
+      halfmove: this.board.halfmove,
+      kingSquares: { ...this.board.kingSquares }
+    };
+    
+    const fromPiece = this.board.getPieceAt(move.from);
+    if (!fromPiece || fromPiece.color !== color) return null;
+    
+    // Remove piece from source
+    this.board.pieces[color][fromPiece.type] &= ~Bitboard.SQ[move.from];
+    
+    // Handle capture
+    const targetPiece = this.board.getPieceAt(move.to);
+    if (targetPiece) {
+      this.board.pieces[targetPiece.color][targetPiece.type] &= ~Bitboard.SQ[move.to];
+      undo.capture = targetPiece;
+    }
+    
+    // Handle en passant
+    if (fromPiece.type === 'P' && move.to === this.board.ep) {
+      const epPawnSq = color === 'w' ? move.to - 8 : move.to + 8;
+      this.board.pieces[opponent].P &= ~Bitboard.SQ[epPawnSq];
+      undo.capture = { type: 'P', color: opponent };
+    }
+    
+    // Place piece at destination
+    const promotion = move.promotion || fromPiece.type;
+    this.board.pieces[color][promotion] |= Bitboard.SQ[move.to];
+    
+    // Handle special moves
+    if (fromPiece.type === 'K') {
+      this.board.kingSquares[color] = move.to;
+      
+      // Castling
+      if (Math.abs(move.to - move.from) === 2) {
+        if (move.to > move.from) { // Kingside
+          const rookFrom = move.from + 3;
+          const rookTo = move.from + 1;
+          this.board.pieces[color].R &= ~Bitboard.SQ[rookFrom];
+          this.board.pieces[color].R |= Bitboard.SQ[rookTo];
+        } else { // Queenside
+          const rookFrom = move.from - 4;
+          const rookTo = move.from + 1;
+          this.board.pieces[color].R &= ~Bitboard.SQ[rookFrom];
+          this.board.pieces[color].R |= Bitboard.SQ[rookTo];
+        }
+      }
+      
+      // Update castling rights
+      this.board.castling[color].k = false;
+      this.board.castling[color].q = false;
+    }
+    
+    if (fromPiece.type === 'R') {
+      const rank = Math.floor(move.from / 8);
+      const file = move.from % 8;
+      if (rank === (color === 'w' ? 0 : 7)) {
+        if (file === 0) this.board.castling[color].q = false;
+        if (file === 7) this.board.castling[color].k = false;
+      }
+    }
+    
+    // Update en passant target
+    this.board.ep = -1;
+    if (fromPiece.type === 'P' && Math.abs(move.to - move.from) === 16) {
+      this.board.ep = move.from + forward / 2;
+    }
+    
+    this.board.updateOccupancy();
+    this.board.generateAttackMaps();
+    
+    return undo;
+  }
+  
+  undoMove(move, undo) {
+    const color = this.board.side === 'w' ? 'b' : 'w';
+    const opponent = this.board.side;
+    
+    const toPiece = this.board.getPieceAt(move.to);
+    if (!toPiece) return;
+    
+    // Remove piece from destination
+    const promotion = move.promotion || toPiece.type;
+    this.board.pieces[color][promotion] &= ~Bitboard.SQ[move.to];
+    
+    // Restore captured piece
+    if (undo.capture) {
+      this.board.pieces[undo.capture.color][undo.capture.type] |= Bitboard.SQ[move.to];
+    }
+    
+    // Restore piece at source
+    this.board.pieces[color][toPiece.type] |= Bitboard.SQ[move.from];
+    
+    // Handle castling
+    if (toPiece.type === 'K' && Math.abs(move.to - move.from) === 2) {
+      if (move.to > move.from) { // Kingside
+        const rookFrom = move.from + 1;
+        const rookTo = move.from + 3;
+        this.board.pieces[color].R &= ~Bitboard.SQ[rookFrom];
+        this.board.pieces[color].R |= Bitboard.SQ[rookTo];
+      } else { // Queenside
+        const rookFrom = move.from + 1;
+        const rookTo = move.from - 4;
+        this.board.pieces[color].R &= ~Bitboard.SQ[rookFrom];
+        this.board.pieces[color].R |= Bitboard.SQ[rookTo];
+      }
+    }
+    
+    // Restore state
+    this.board.castling = undo.castling;
+    this.board.ep = undo.ep;
+    this.board.halfmove = undo.halfmove;
+    this.board.kingSquares = undo.kingSquares;
+    
+    this.board.updateOccupancy();
+    this.board.generateAttackMaps();
+  }
+}
+
+// ============================================================================
+// 5. EVALUATION
+// ============================================================================
+
+class Evaluator {
+  constructor() {
+    // Piece-square tables (simplified - in production, use tuned tables)
+    this.pst = {
+      w: {
+        P: [0, 0, 0, 0, 0, 0, 0, 0,
+            50, 50, 50, 50, 50, 50, 50, 50,
+            10, 10, 20, 30, 30, 20, 10, 10,
+            5, 5, 10, 25, 25, 10, 5, 5,
+            0, 0, 0, 20, 20, 0, 0, 0,
+            5, -5, -10, 0, 0, -10, -5, 5,
+            5, 10, 10, -20, -20, 10, 10, 5,
+            0, 0, 0, 0, 0, 0, 0, 0],
+        N: [-50, -40, -30, -30, -30, -30, -40, -50,
+            -40, -20, 0, 0, 0, 0, -20, -40,
+            -30, 0, 10, 15, 15, 10, 0, -30,
+            -30, 5, 15, 20, 20, 15, 5, -30,
+            -30, 0, 15, 20, 20, 15, 0, -30,
+            -30, 5, 10, 15, 15, 10, 5, -30,
+            -40, -20, 0, 5, 5, 0, -20, -40,
+            -50, -40, -30, -30, -30, -30, -40, -50],
+        B: [-20, -10, -10, -10, -10, -10, -10, -20,
+            -10, 0, 0, 0, 0, 0, 0, -10,
+            -10, 0, 5, 10, 10, 5, 0, -10,
+            -10, 5, 5, 10, 10, 5, 5, -10,
+            -10, 0, 10, 10, 10, 10, 0, -10,
+            -10, 10, 10, 10, 10, 10, 10, -10,
+            -10, 5, 0, 0, 0, 0, 5, -10,
+            -20, -10, -10, -10, -10, -10, -10, -20],
+        R: [0, 0, 0, 0, 0, 0, 0, 0,
+            5, 10, 10, 10, 10, 10, 10, 5,
+            -5, 0, 0, 0, 0, 0, 0, -5,
+            -5, 0, 0, 0, 0, 0, 0, -5,
+            -5, 0, 0, 0, 0, 0, 0, -5,
+            -5, 0, 0, 0, 0, 0, 0, -5,
+            -5, 0, 0, 0, 0, 0, 0, -5,
+            0, 0, 0, 5, 5, 0, 0, 0],
+        Q: [-20, -10, -10, -5, -5, -10, -10, -20,
+            -10, 0, 0, 0, 0, 0, 0, -10,
+            -10, 0, 5, 5, 5, 5, 0, -10,
+            -5, 0, 5, 5, 5, 5, 0, -5,
+            0, 0, 5, 5, 5, 5, 0, -5,
+            -10, 5, 5, 5, 5, 5, 0, -10,
+            -10, 0, 5, 0, 0, 0, 0, -10,
+            -20, -10, -10, -5, -5, -10, -10, -20],
+        K: [-30, -40, -40, -50, -50, -40, -40, -30,
+            -30, -40, -40, -50, -50, -40, -40, -30,
+            -30, -40, -40, -50, -50, -40, -40, -30,
+            -30, -40, -40, -50, -50, -40, -40, -30,
+            -20, -30, -30, -40, -40, -30, -30, -20,
+            -10, -20, -20, -20, -20, -20, -20, -10,
+            20, 20, 0, 0, 0, 0, 20, 20,
+            20, 30, 10, 0, 0, 10, 30, 20]
+      },
+      b: {} // Will be mirrored
+    };
+    
+    // Mirror PST for black
+    for (let piece in this.pst.w) {
+      this.pst.b[piece] = [];
+      for (let rank = 0; rank < 8; rank++) {
+        for (let file = 0; file < 8; file++) {
+          const sq = rank * 8 + file;
+          const mirroredSq = (7 - rank) * 8 + file;
+          this.pst.b[piece][sq] = -this.pst.w[piece][mirroredSq];
+        }
+      }
+    }
+  }
+  
+  evaluate(board) {
+    let score = 0;
+    let phase = 0;
+    
+    const mgScore = this.evaluatePhase(board, 'midgame');
+    const egScore = this.evaluatePhase(board, 'endgame');
+    
+    // Calculate game phase
+    for (let color of ['w', 'b']) {
+      for (let piece of ['N', 'B', 'R', 'Q']) {
+        phase += Bitboard.popcnt(board.pieces[color][piece]) * Bitboard.PHASE_VALUES[piece];
+      }
+    }
+    
+    phase = Math.min(phase, Bitboard.TOTAL_PHASE);
+    const egPhase = phase;
+    const mgPhase = Bitboard.TOTAL_PHASE - egPhase;
+    
+    score = (mgScore * mgPhase + egScore * egPhase) / Bitboard.TOTAL_PHASE;
+    
+    return board.side === 'w' ? score : -score;
+  }
+  
+  evaluatePhase(board, phase) {
+    let score = 0;
+    
+    for (let color of ['w', 'b']) {
+      const sign = color === 'w' ? 1 : -1;
+      
+      // Material and PST
+      for (let piece of ['P', 'N', 'B', 'R', 'Q', 'K']) {
+        let pieces = board.pieces[color][piece];
+        while (pieces) {
+          const sq = Bitboard.bitscan(pieces);
+          pieces &= pieces - 1n;
+          
+          score += sign * Bitboard.PIECE_VALUES[piece];
+          score += sign * this.pst[color][piece][sq];
+        }
+      }
+      
+      // Pawn structure
+      score += sign * this.evaluatePawnStructure(board, color);
+      
+      // Piece coordination
+      score += sign * this.evaluatePieceCoordination(board, color);
+      
+      // King safety
+      score += sign * this.evaluateKingSafety(board, color);
+    }
+    
+    return score;
+  }
+  
+  evaluatePawnStructure(board, color) {
+    let score = 0;
+    const pawns = board.pieces[color].P;
+    const opponent = color === 'w' ? 'b' : 'w';
+    
+    let p = pawns;
+    while (p) {
+      const sq = Bitboard.bitscan(p);
+      p &= p - 1n;
+      
+      const file = sq % 8;
+      const rank = Math.floor(sq / 8);
+      
+      // Isolated pawn
+      const fileMask = Bitboard.FILES[file];
+      const adjacentFiles = (file > 0 ? Bitboard.FILES[file - 1] : 0n) | 
+                           (file < 7 ? Bitboard.FILES[file + 1] : 0n);
+      
+      if ((pawns & adjacentFiles) === 0n) {
+        score -= 20;
+      }
+      
+      // Doubled pawn
+      if (Bitboard.popcnt(pawns & fileMask) > 1) {
+        score -= 15;
+      }
+      
+      // Passed pawn
+      const forwardMask = color === 'w' ? 
+        ~0n << BigInt(sq + 8) : 
+        ~((1n << BigInt(sq)) - 1n);
+      
+      const opponentPawns = board.pieces[opponent].P;
+      const passed = (opponentPawns & forwardMask & adjacentFiles) === 0n;
+      
+      if (passed) {
+        score += 30 + rank * 10;
+      }
+      
+      // Backward pawn (simplified)
+      const backward = (pawns & adjacentFiles & (color === 'w' ? 
+        Bitboard.RANKS[rank - 1] : Bitboard.RANKS[rank + 1])) === 0n;
+      
+      if (backward && !passed) {
+        score -= 10;
+      }
+    }
+    
+    return score;
+  }
+  
+  evaluatePieceCoordination(board, color) {
+    let score = 0;
+    
+    // Bishop pair
+    if (Bitboard.popcnt(board.pieces[color].B) >= 2) {
+      score += 30;
+    }
+    
+    // Rook on open file
+    let rooks = board.pieces[color].R;
+    while (rooks) {
+      const sq = Bitboard.bitscan(rooks);
+      rooks &= rooks - 1n;
+      const file = sq % 8;
+      
+      const fileMask = Bitboard.FILES[file];
+      if ((board.pieces[color].P & fileMask) === 0n) {
+        score += 20;
+        if ((board.pieces[color === 'w' ? 'b' : 'w'].P & fileMask) === 0n) {
+          score += 10; // Fully open file
+        }
+      }
+    }
+    
+    // Knight outposts (simplified)
+    let knights = board.pieces[color].N;
+    while (knights) {
+      const sq = Bitboard.bitscan(knights);
+      knights &= knights - 1n;
+      
+      const rank = Math.floor(sq / 8);
+      const file = sq % 8;
+      
+      if (color === 'w' && rank >= 3 && rank <= 5) {
+        if ((board.attackMaps[color] & Bitboard.SQ[sq]) && 
+            !(board.attackMaps[color === 'w' ? 'b' : 'w'].P & Bitboard.SQ[sq])) {
+          score += 20;
+        }
+      }
+      if (color === 'b' && rank >= 2 && rank <= 4) {
+        if ((board.attackMaps[color] & Bitboard.SQ[sq]) && 
+            !(board.attackMaps[color === 'w' ? 'b' : 'w'].P & Bitboard.SQ[sq])) {
+          score += 20;
+        }
+      }
+    }
+    
+    return score;
+  }
+  
+  evaluateKingSafety(board, color) {
+    let score = 0;
+    const kingSq = board.kingSquares[color];
+    const opponent = color === 'w' ? 'b' : 'w';
+    
+    // King shield (simplified)
+    const kingAttacks = board.generateKingAttacks(kingSq);
+    const pawnShield = kingAttacks & board.pieces[color].P;
+    score += Bitboard.popcnt(pawnShield) * 10;
+    
+    // Attacks on king
+    const attackWeight = Bitboard.popcnt(board.attackMaps[opponent] & kingAttacks);
+    score -= attackWeight * 15;
+    
+    return score;
+  }
+}
+
+// ============================================================================
+// 6. TRANSPOSITION TABLE
+// ============================================================================
+
+class TTEntry {
+  constructor() {
+    this.hash = 0n;
+    this.depth = 0;
+    this.score = 0;
+    this.flag = 0; // 0 = exact, 1 = alpha, 2 = beta
+    this.move = null;
+    this.age = 0;
+  }
+}
+
+class TranspositionTable {
+  constructor(size = 32) { // Size in MB
+    this.size = size * 1024 * 1024;
+    this.entries = new Array(Math.floor(this.size / 24)); // ~24 bytes per entry
+    this.age = 0;
+    this.mask = this.entries.length - 1;
+    
+    for (let i = 0; i < this.entries.length; i++) {
+      this.entries[i] = new TTEntry();
+    }
+  }
+  
+  index(hash) {
+    return Number(hash & BigInt(this.mask));
+  }
+  
+  store(hash, depth, score, flag, move, ply) {
+    const idx = this.index(hash);
+    const entry = this.entries[idx];
+    
+    // Replace if deeper or same age
+    if (depth >= entry.depth || entry.age !== this.age) {
+      entry.hash = hash;
+      entry.depth = depth;
+      entry.score = this.encodeScore(score, ply);
+      entry.flag = flag;
+      entry.move = move;
+      entry.age = this.age;
+    }
+  }
+  
+  probe(hash, depth, alpha, beta, ply) {
+    const idx = this.index(hash);
+    const entry = this.entries[idx];
+    
+    if (entry.hash === hash) {
+      const score = this.decodeScore(entry.score, ply);
+      
+      if (entry.depth >= depth) {
+        if (entry.flag === 0) return { score, move: entry.move, flag: 'exact' };
+        if (entry.flag === 1 && score <= alpha) return { score, move: entry.move, flag: 'alpha' };
+        if (entry.flag === 2 && score >= beta) return { score, move: entry.move, flag: 'beta' };
+      }
+      
+      return { move: entry.move, flag: 'none' };
+    }
+    
+    return null;
+  }
+  
+  encodeScore(score, ply) {
+    if (Math.abs(score) > 9000) {
+      return score + (score > 0 ? ply : -ply);
+    }
+    return score;
+  }
+  
+  decodeScore(score, ply) {
+    if (Math.abs(score) > 9000) {
+      return score - (score > 0 ? ply : -ply);
+    }
+    return score;
+  }
+  
+  newSearch() {
+    this.age++;
+  }
+}
+
+// ============================================================================
+// 7. SEARCH
+// ============================================================================
+
+class Searcher {
+  constructor(board, tt) {
+    this.board = board;
+    this.tt = tt;
+    this.evaluator = new Evaluator();
+    this.moveGenerator = new MoveGenerator(board);
+    
+    // History heuristic
+    this.history = {
+      w: Array(64).fill(null).map(() => Array(64).fill(0)),
+      b: Array(64).fill(null).map(() => Array(64).fill(0))
+    };
+    
+    // Killer moves
+    this.killerMoves = Array(64).fill(null).map(() => [null, null]);
+    
+    // Search parameters
+    this.nodes = 0;
+    this.stop = false;
+    this.startTime = 0;
+    this.maxTime = 0;
+    this.pvLine = [];
+    this.pvTable = Array(64).fill(null).map(() => []);
+  }
+  
+  search(depth, timeLimit = 3000) {
+    this.nodes = 0;
+    this.stop = false;
+    this.startTime = Date.now();
+    this.maxTime = timeLimit;
+    this.tt.newSearch();
+    
+    let bestMove = null;
+    let bestScore = -Infinity;
+    let alpha = -Infinity;
+    let beta = Infinity;
+    
+    // Aspiration windows
+    const aspirationWindow = 25;
+    
+    for (let currentDepth = 1; currentDepth <= depth; currentDepth++) {
+      this.pvLine = [];
+      
+      if (currentDepth > 4) {
+        alpha = bestScore - aspirationWindow;
+        beta = bestScore + aspirationWindow;
+      }
+      
+      let score = this.negamax(currentDepth, alpha, beta, 0, true);
+      
+      // Aspiration window fail-low
+      if (score <= alpha) {
+        alpha = -Infinity;
+        score = this.negamax(currentDepth, alpha, beta, 0, true);
+      }
+      
+      // Aspiration window fail-high
+      if (score >= beta) {
+        beta = Infinity;
+        score = this.negamax(currentDepth, alpha, beta, 0, true);
+      }
+      
+      bestScore = score;
+      bestMove = this.pvLine[0];
+      
+      // Send info to UI
+      const elapsed = Date.now() - this.startTime;
+      self.postMessage({
+        type: 'info',
+        depth: currentDepth,
+        score: bestScore,
+        nodes: this.nodes,
+        time: elapsed,
+        nps: Math.floor(this.nodes / (elapsed / 1000)),
+        pv: this.pvLine.map(m => m.toString()).join(' ')
+      });
+      
+      if (this.stop) break;
+      
+      // Time check
+      if (elapsed > this.maxTime * 0.8) break;
+    }
+    
+    return {
+      move: bestMove,
+      score: bestScore,
+      depth: depth,
+      nodes: this.nodes,
+      time: Date.now() - this.startTime
+    };
+  }
+  
+  negamax(depth, alpha, beta, ply, isPv) {
+    this.nodes++;
+    
+    // Time check
+    if ((this.nodes & 0x3FF) === 0) {
+      if (Date.now() - this.startTime > this.maxTime) {
+        this.stop = true;
+        return 0;
+      }
+    }
+    
+    const originalAlpha = alpha;
+    const inCheck = this.board.isInCheck(this.board.side);
+    
+    // Check extension
+    if (inCheck) depth++;
+    
+    // Transposition table probe
+    const ttEntry = this.tt.probe(this.board.hash, depth, alpha, beta, ply);
+    if (ttEntry && !isPv && ttEntry.flag !== 'none') {
+      if (ttEntry.flag === 'exact') return ttEntry.score;
+      if (ttEntry.flag === 'alpha' && ttEntry.score <= alpha) return alpha;
+      if (ttEntry.flag === 'beta' && ttEntry.score >= beta) return beta;
+    }
+    
+    // Static evaluation
+    let staticEval = this.evaluator.evaluate(this.board);
+    
+    // Null move pruning (avoid zugzwang)
+    if (depth >= 2 && !inCheck && !isPv && this.board.occupied) {
+      const R = 2 + Math.floor(depth / 4);
+      
+      // Make null move
+      const side = this.board.side;
+      this.board.side = this.board.side === 'w' ? 'b' : 'w';
+      this.board.generateAttackMaps();
+      
+      const nullScore = -this.negamax(depth - R - 1, -beta, -beta + 1, ply + 1, false);
+      
+      // Undo null move
+      this.board.side = side;
+      this.board.generateAttackMaps();
+      
+      if (nullScore >= beta) {
+        return beta;
+      }
+    }
+    
+    // Quiescence search
+    if (depth <= 0) {
+      return this.quiescence(alpha, beta, ply);
+    }
+    
+    // Generate moves
+    const moves = this.moveGenerator.generateLegalMoves();
+    
+    if (moves.length === 0) {
+      if (inCheck) return -10000 + ply; // Checkmate
+      return 0; // Stalemate
+    }
+    
+    // Move ordering
+    this.orderMoves(moves, ttEntry?.move, ply);
+    
+    let bestScore = -Infinity;
+    let bestMove = null;
+    let movesSearched = 0;
+    
+    for (let move of moves) {
+      const undo = this.moveGenerator.makeMove(move);
+      if (!undo) continue;
+      
+      let score;
+      if (movesSearched === 0) {
+        // Principal variation search
+        score = -this.negamax(depth - 1, -beta, -alpha, ply + 1, isPv);
+      } else {
+        // LMR
+        let reduction = 0;
+        if (depth >= 3 && movesSearched >= 3 && !inCheck && !move.capture) {
+          reduction = Math.floor(Math.log2(depth) * Math.log2(movesSearched));
+          reduction = Math.min(reduction, depth - 1);
+        }
+        
+        score = -this.negamax(depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, false);
+        
+        if (score > alpha && reduction > 0) {
+          score = -this.negamax(depth - 1, -alpha - 1, -alpha, ply + 1, false);
+        }
+        
+        if (score > alpha && score < beta) {
+          score = -this.negamax(depth - 1, -beta, -alpha, ply + 1, true);
+        }
+      }
+      
+      this.moveGenerator.undoMove(move, undo);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = move;
+        
+        if (ply === 0) {
+          this.pvLine = [move, ...this.pvTable[ply + 1]];
+        }
+        
         if (score > alpha) {
           alpha = score;
-          if (alpha >= beta) {
-            /* Beta cutoff */
-            if (!(m.flags & FLAG_CAPTURE)) {
-              this.storeKiller(m, ply);
-              this.updateHistory(m, depth);
+          
+          // Update PV table
+          this.pvTable[ply] = [move, ...this.pvTable[ply + 1]];
+          
+          if (score >= beta) {
+            // Update killer moves and history
+            if (!move.capture) {
+              this.killerMoves[ply][1] = this.killerMoves[ply][0];
+              this.killerMoves[ply][0] = move;
+              this.history[this.board.side][move.from][move.to] += depth * depth;
             }
             break;
           }
         }
       }
-
-      /* TT store */
-      let flag = 0;                          // exact
-      if (bestScore <= alpha0) flag = -1;    // upper bound
-      else if (bestScore >= beta) flag = 1;  // lower bound
-      this.tt.store(this.hash, depth, bestScore, flag,
-        TranspositionTable.encodeMove(bestMove));
-
-      return bestScore;
+      
+      movesSearched++;
+      if (this.stop) break;
     }
-
-    /* ── Time management ── */
-    _checkTime() {
-      if ((this.nodes & 4095) === 0) {
-        if (Date.now() - this.startTime >= this.moveTime) this.stop = true;
+    
+    // Transposition table store
+    const flag = bestScore <= originalAlpha ? 1 : (bestScore >= beta ? 2 : 0);
+    this.tt.store(this.board.hash, depth, bestScore, flag, bestMove, ply);
+    
+    return bestScore;
+  }
+  
+  quiescence(alpha, beta, ply) {
+    this.nodes++;
+    
+    // Time check
+    if ((this.nodes & 0x3FF) === 0) {
+      if (Date.now() - this.startTime > this.maxTime) {
+        this.stop = true;
+        return 0;
       }
     }
-
-    calcMoveTime(spec) {
-      if (spec.moveTime) return spec.moveTime;
-      const t   = this.side === WHITE ? (spec.wtime||0) : (spec.btime||0);
-      const inc = this.side === WHITE ? (spec.winc||0)  : (spec.binc||0);
-      const mtg = spec.movestogo || 30;
-      if (!t) return 5000;
-      return Math.max(50, Math.floor(t / Math.max(5, mtg) + inc * 0.75));
+    
+    const standPat = this.evaluator.evaluate(this.board);
+    
+    if (standPat >= beta) return beta;
+    if (alpha < standPat) alpha = standPat;
+    
+    const inCheck = this.board.isInCheck(this.board.side);
+    
+    // Generate tactical moves
+    const moves = this.generateTacticalMoves();
+    
+    if (moves.length === 0) {
+      if (inCheck) return -10000 + ply;
+      return standPat;
     }
-
-    /* ── PV extraction ── */
-    pvLine(depth) {
-      const line = [];
-      const seen  = new Set();
-      for (let i = 0; i < depth; i++) {
-        const enc = this.tt.getBestMove(this.hash);
-        if (!enc) break;
-        const m = this.findMoveByEncoded(enc);
-        if (!m) break;
-        const key = this.hash + ':' + enc;
-        if (seen.has(key)) break;
-        seen.add(key);
-        line.push(this.moveToUci(m));
-        this.makeMove(m);
+    
+    this.orderMoves(moves, null, ply);
+    
+    for (let move of moves) {
+      // Delta pruning
+      const captureValue = move.capture ? Bitboard.PIECE_VALUES[move.capture.type] : 0;
+      if (standPat + captureValue + 200 < alpha) continue;
+      
+      const undo = this.moveGenerator.makeMove(move);
+      if (!undo) continue;
+      
+      const score = -this.quiescence(-beta, -alpha, ply + 1);
+      this.moveGenerator.undoMove(move, undo);
+      
+      if (score > alpha) {
+        alpha = score;
+        if (score >= beta) return beta;
       }
-      for (let i = 0; i < line.length; i++) this.undoMove();
-      return line;
+      
+      if (this.stop) break;
     }
-
-    /* ── Root search (iterative deepening) ── */
-    search(spec) {
-      this.stop      = false;
-      this.nodes     = 0;
-      this.selDepth  = 0;
-      this.startTime = Date.now();
-      this.moveTime  = this.calcMoveTime(spec);
-
-      /* Reset history heuristic and killers each search */
-      this.histTable.fill(0);
-      for (const k of this.killers) { k[0] = 0; k[1] = 0; }
-
-      const depthLimit = Math.max(1, Math.min(64, spec.depth || 64));
-      const multiPV    = Math.max(1, Math.min(8, (spec.multiPV || this.options.MultiPV) | 0));
-
-      let rootMoves    = this.genMoves(false);
-      if (rootMoves.length === 0) {
-        this.send('bestmove 0000');
-        return;
+    
+    return alpha;
+  }
+  
+  generateTacticalMoves() {
+    const moves = [];
+    const color = this.board.side;
+    const opponent = color === 'w' ? 'b' : 'w';
+    
+    // Generate captures and checks
+    const pseudoMoves = this.moveGenerator.generatePseudoLegalMoves();
+    
+    for (let move of pseudoMoves) {
+      const undo = this.moveGenerator.makeMove(move);
+      if (!undo) continue;
+      
+      const givesCheck = this.board.isInCheck(opponent);
+      this.moveGenerator.undoMove(move, undo);
+      
+      if (move.capture || givesCheck || move.promotion) {
+        moves.push(move);
       }
+    }
+    
+    return moves;
+  }
+  
+  orderMoves(moves, ttMove, ply) {
+    const color = this.board.side;
+    
+    for (let move of moves) {
+      move.score = 0;
+      
+      // TT move
+      if (ttMove && move.from === ttMove.from && move.to === ttMove.to) {
+        move.score = 1000000;
+        continue;
+      }
+      
+      // MVV-LVA for captures
+      if (move.capture) {
+        const victim = Bitboard.PIECE_VALUES[move.capture.type];
+        const attacker = 100; // Simplified
+        move.score = 100000 + victim * 10 - attacker;
+        continue;
+      }
+      
+      // Killer moves
+      if (this.killerMoves[ply][0] && 
+          move.from === this.killerMoves[ply][0].from && 
+          move.to === this.killerMoves[ply][0].to) {
+        move.score = 50000;
+        continue;
+      }
+      
+      if (this.killerMoves[ply][1] && 
+          move.from === this.killerMoves[ply][1].from && 
+          move.to === this.killerMoves[ply][1].to) {
+        move.score = 40000;
+        continue;
+      }
+      
+      // History heuristic
+      move.score = this.history[color][move.from][move.to];
+    }
+    
+    moves.sort((a, b) => b.score - a.score);
+  }
+}
 
-      let bestMove     = rootMoves[0];
-      let bestScore    = -INF;
-      let prevScore    = -INF;
+// ============================================================================
+// 8. WEB WORKER INTERFACE
+// ============================================================================
 
-      for (let d = 1; d <= depthLimit; d++) {
-        if (this.stop) break;
-
-        /* Aspiration window */
-        let asp   = d > 1 ? 25 : INF;
-        let lo    = d > 1 ? Math.max(-INF, prevScore - asp) : -INF;
-        let hi    = d > 1 ? Math.min( INF, prevScore + asp) : INF;
-
-        const scored = [];
-
-        /* ---- aspiration loop ---- */
-        aspirationLoop:
-        while (true) {
-          scored.length = 0;
-          let alpha = lo;
-
-          /* Order root moves: best move first */
-          const ttEnc = this.tt.getBestMove(this.hash);
-          this.orderMoves(rootMoves, ttEnc, 0);
-
-          let moveIdx = 0;
-          for (const m of rootMoves) {
-            if (this.stop) break;
-
-            this.makeMove(m);
-            let score;
-
-            if (moveIdx === 0) {
-              score = -this.negamax(d-1, -hi, -alpha, 1, true);
-            } else {
-              score = -this.negamax(d-1, -alpha-1, -alpha, 1, true);
-              if (!this.stop && score > alpha && score < hi) {
-                score = -this.negamax(d-1, -hi, -alpha, 1, true);
-              }
-            }
-
-            this.undoMove();
-            if (this.stop) break;
-
-            scored.push({ m, score });
-
-            if (score > alpha) {
-              alpha = score;
-              if (alpha >= hi) {
-                /* Fail high: widen upper bound */
-                asp = Math.min(asp * 2, INF);
-                hi  = Math.min(INF, alpha + asp);
-                lo  = Math.max(-INF, alpha - asp);
-                continue aspirationLoop;
-              }
-            }
-            moveIdx++;
-          }
-
-          if (scored.length && scored[0].score <= lo && lo > -INF + 1) {
-            /* Fail low: widen lower bound */
-            asp = Math.min(asp * 2, INF);
-            lo  = Math.max(-INF, scored[0].score - asp);
-            hi  = Math.min(INF, scored[0].score + asp);
-            continue aspirationLoop;
-          }
-          break;
+class ChessEngine {
+  constructor() {
+    this.board = new Board();
+    this.tt = new TranspositionTable(64); // 64MB TT
+    this.searcher = null;
+    this.isSearching = false;
+  }
+  
+  handleMessage(event) {
+    const data = event.data;
+    
+    switch (data.type) {
+      case 'init':
+        this.board.fromFen(data.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+        break;
+        
+      case 'search':
+        if (this.isSearching) {
+          self.postMessage({ type: 'error', message: 'Already searching' });
+          return;
         }
-        /* ---- end aspiration loop ---- */
-
-        if (!scored.length) break;
-
-        /* Sort final results */
-        scored.sort((a, b) => b.score - a.score);
-        bestMove  = scored[0].m;
-        bestScore = scored[0].score;
-        prevScore = bestScore;
-
-        /* Re-order rootMoves to match scored order for next iteration */
-        rootMoves = scored.map(x => x.m);
-
-        const elapsed = Date.now() - this.startTime;
-        const nps     = elapsed > 0 ? Math.floor(this.nodes * 1000 / elapsed) : this.nodes;
-        const hashfull = 0; // typed-array TT doesn't track fill easily
-
-        /* Report MultiPV lines */
-        for (let i = 0; i < Math.min(multiPV, scored.length); i++) {
-          const { m, score } = scored[i];
-          this.makeMove(m);
-          const pv = [this.moveToUci(m), ...this.pvLine(Math.max(0, d-1))].join(' ');
-          this.undoMove();
-
-          /* evalbar: 0-100, 50 = equal */
-          const evalBar = Math.max(0, Math.min(100, 50 + Math.round(score / 20)));
-
-          if (Math.abs(score) >= MATE - 200) {
-            const mate = score > 0
-              ? Math.ceil((MATE - score) / 2)
-              : -Math.ceil((MATE + score) / 2);
-            this.send('info depth', d, 'seldepth', this.selDepth,
-              'multipv', i+1, 'score mate', mate,
-              'nodes', this.nodes, 'nps', nps,
-              'hashfull', hashfull, 'time', elapsed, 'pv', pv);
-          } else {
-            this.send('info depth', d, 'seldepth', this.selDepth,
-              'multipv', i+1, 'score cp', score,
-              'nodes', this.nodes, 'nps', nps,
-              'hashfull', hashfull, 'time', elapsed, 'pv', pv);
-          }
-          this.send('info string evalbar', evalBar);
+        
+        this.isSearching = true;
+        this.search(data.depth || 10, data.time || 3000);
+        break;
+        
+      case 'stop':
+        if (this.searcher) {
+          this.searcher.stop = true;
         }
-      }
-
-      this.bestMove = bestMove;
-      this.send('bestmove', this.moveToUci(bestMove));
-    }
-
-    /* ── UCI command handlers ── */
-    handlePosition(tokens) {
-      let i = 1;
-      if (tokens[i] === 'startpos') {
-        this.setFen(START_FEN); i++;
-      } else if (tokens[i] === 'fen') {
-        i++;
-        const fp = [];
-        while (i < tokens.length && tokens[i] !== 'moves') fp.push(tokens[i++]);
-        this.setFen(fp.join(' '));
-      }
-      if (tokens[i] === 'moves') {
-        i++;
-        while (i < tokens.length) {
-          const m = this.findMoveByUci(tokens[i++]);
-          if (!m) break;
-          this.makeMove(m);
-        }
-      }
-    }
-
-    handleGo(tokens) {
-      const spec = {
-        depth:0, moveTime:0,
-        wtime:0, btime:0, winc:0, binc:0, movestogo:30,
-        multiPV:0, infinite:false,
-      };
-      for (let i = 1; i < tokens.length; i++) {
-        const t = tokens[i], v = Number(tokens[i+1]);
-        if (t==='infinite')   { spec.infinite=true; }
-        if (t==='depth')      { spec.depth=v; }
-        if (t==='movetime')   { spec.moveTime=v; }
-        if (t==='wtime')      { spec.wtime=v; }
-        if (t==='btime')      { spec.btime=v; }
-        if (t==='winc')       { spec.winc=v; }
-        if (t==='binc')       { spec.binc=v; }
-        if (t==='movestogo')  { spec.movestogo=v; }
-        if (t==='multipv')    { spec.multiPV=v; }
-      }
-      if (spec.infinite && !spec.moveTime) spec.moveTime = 24 * 3600 * 1000;
-      if (!spec.depth) spec.depth = 64;
-      this.search(spec);
-    }
-
-    handleSetOption(tokens) {
-      const ni = tokens.indexOf('name');
-      const vi = tokens.indexOf('value');
-      if (ni < 0) return;
-      const name  = tokens.slice(ni+1, vi>-1?vi:tokens.length).join(' ');
-      const value = vi>-1 ? tokens.slice(vi+1).join(' ') : '';
-      if (name==='MultiPV') this.options.MultiPV = Math.max(1,Math.min(8,+value||1));
-    }
-
-    command(line) {
-      const tokens = line.trim().split(/\s+/);
-      if (!tokens[0]) return;
-      switch (tokens[0]) {
-        case 'uci':
-          this.send('id name', this.name);
-          this.send('id author', this.author);
-          this.send('option name MultiPV type spin default 1 min 1 max 8');
-          this.send('option name Threads type spin default 1 min 1 max 1');
-          this.send('option name Ponder type check default false');
-          this.send('uciok');
-          break;
-        case 'isready':
-          this.send('readyok');
-          break;
-        case 'ucinewgame':
-          this.tt.clear();
-          this.histTable.fill(0);
-          for (const k of this.killers) { k[0]=0; k[1]=0; }
-          this.setFen(START_FEN);
-          break;
-        case 'position':
-          this.handlePosition(tokens);
-          break;
-        case 'go':
-          this.handleGo(tokens);
-          break;
-        case 'stop':
-          this.stop = true;
-          break;
-        case 'setoption':
-          this.handleSetOption(tokens);
-          break;
-        case 'd':
-        case 'fen':
-          this.send('info string', this.getFen());
-          break;
-        case 'quit':
-          this.stop = true;
-          break;
-      }
+        break;
+        
+      case 'position':
+        this.board.fromFen(data.fen);
+        break;
+        
+      case 'ping':
+        self.postMessage({ type: 'pong' });
+        break;
+        
+      default:
+        self.postMessage({ type: 'error', message: 'Unknown command' });
     }
   }
+  
+  search(depth, timeLimit) {
+    try {
+      this.searcher = new Searcher(this.board, this.tt);
+      const result = this.searcher.search(depth, timeLimit);
+      
+      self.postMessage({
+        type: 'bestmove',
+        move: result.move ? result.move.toString() : '(none)',
+        score: result.score,
+        depth: result.depth,
+        nodes: result.nodes,
+        time: result.time,
+        nps: Math.floor(result.nodes / (result.time / 1000))
+      });
+      
+    } catch (error) {
+      self.postMessage({
+        type: 'error',
+        message: error.message,
+        stack: error.stack
+      });
+    } finally {
+      this.isSearching = false;
+    }
+  }
+}
 
-  /* ── Bootstrap ── */
-  const engine = new Engine();
-  self.onmessage = (e) => {
-    const lines = String(e.data||'').split(/\r?\n/);
-    for (const ln of lines) { const l=ln.trim(); if (l) engine.command(l); }
-  };
+// Initialize engine
+const engine = new ChessEngine();
 
+// Worker message handler
+self.onmessage = function(event) {
+  engine.handleMessage(event);
+};
+
+// ============================================================================
+// 9. TAMPERMONKEY INTEGRATION HELPER
+// ============================================================================
+
+// This section can be used to create a Tampermonkey userscript wrapper
+// Example usage:
+/*
+// ==UserScript==
+// @name         Chess Engine Worker
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Advanced chess engine for analysis
+// @match        *://*/*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    const workerCode = `...engine code here...`;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
+    
+    worker.onmessage = function(event) {
+        console.log('Engine:', event.data);
+    };
+    
+    worker.postMessage({ type: 'init', fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' });
+    worker.postMessage({ type: 'search', depth: 10, time: 3000 });
 })();
+*/
