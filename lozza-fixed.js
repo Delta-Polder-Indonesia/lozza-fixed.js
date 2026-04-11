@@ -1805,9 +1805,8 @@ lozChess.prototype.go = function() {
     var maxPV = Math.min(wantedPV, candidates.length);
     for (var i=0; i < maxPV; i++) {
       var c = candidates[i];
-      var s = this.toUciScore(c.rawScore);
       var pv = board.getPVStr(this.rootNode, c.move, Math.max(1, this.stats.ply), UCI_FMT);
-      this.uci.send('info', 'depth', this.stats.ply, 'seldepth', this.stats.selDepth, 'multipv', i+1, 'score', s.units, s.value, 'pv', pv);
+      this.sendUciPvInfo(this.stats.ply, this.stats.selDepth, c.rawScore, pv, i + 1);
     }
   }
 
@@ -1960,6 +1959,26 @@ lozChess.prototype.toUciScore = function (score) {
 }
 
 //}}}
+//{{{  .sendUciPvInfo
+
+lozChess.prototype.sendUciPvInfo = function (depth, seldepth, score, pvStr, multipv) {
+
+  var s = this.toUciScore(score);
+  var tim = Date.now() - this.stats.startTime;
+
+  if (tim < 1)
+    tim = 1;
+
+  var nps = (this.stats.nodes * 1000) / tim | 0;
+  var hashfull = myround(1000 * this.board.hashUsed / TTSIZE);
+
+  if (multipv && multipv > 1)
+    this.uci.send('info', 'depth', depth, 'seldepth', seldepth, 'multipv', multipv, 'score', s.units, s.value, 'nodes', this.stats.nodes, 'nps', nps, 'hashfull', hashfull, 'time', tim, 'pv', pvStr);
+  else
+    this.uci.send('info', 'depth', depth, 'seldepth', seldepth, 'score', s.units, s.value, 'nodes', this.stats.nodes, 'nps', nps, 'hashfull', hashfull, 'time', tim, 'pv', pvStr);
+}
+
+//}}}
 //{{{  .scoreToEvalBar
 
 lozChess.prototype.scoreToEvalBar = function (score) {
@@ -2104,22 +2123,8 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
         
         this.stats.bestMove = move;
         
-        var absScore = Math.abs(score);
-        var units    = 'cp';
-        var uciScore = score;
-        var mv       = board.formatMove(move,board.mvFmt);
         var pvStr    = board.getPVStr(node,move,depth,UCI_FMT);
-        
-        if (absScore >= MINMATE && absScore <= MATE) {
-          if (lozzaHost != HOST_NODEJS)
-            pvStr += '#';
-          var units    = 'mate';
-          var uciScore = (MATE - absScore) / 2 | 0;
-          if (score < 0)
-            uciScore = -uciScore;
-        }
-        
-        this.uci.send('info',this.stats.nodeStr(),'depth',this.stats.ply,'seldepth',this.stats.selDepth,'score',units,uciScore,'pv',pvStr);
+        this.sendUciPvInfo(this.stats.ply, this.stats.selDepth, score, pvStr, this.uci.spec.multiPV > 1 ? 1 : 0);
         //this.stats.update();
         
         if (this.stats.splits > 5)
