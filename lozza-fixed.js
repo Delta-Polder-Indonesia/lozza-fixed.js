@@ -1777,7 +1777,9 @@ lozChess.prototype.go = function() {
 
   var selected = null;
 
-  if (spec.humanStyle)
+  var forcingLine = Math.abs(bestScore) >= (MINMATE - 2);
+
+  if (spec.humanStyle && !forcingLine)
     selected = this.pickHumanMove(candidates, bestScore, spec);
 
   if (!selected) {
@@ -1804,7 +1806,7 @@ lozChess.prototype.go = function() {
     for (var i=0; i < maxPV; i++) {
       var c = candidates[i];
       var s = this.toUciScore(c.rawScore);
-      var pv = board.getPVStr(this.rootNode, c.move, Math.max(1, this.stats.ply));
+      var pv = board.getPVStr(this.rootNode, c.move, Math.max(1, this.stats.ply), UCI_FMT);
       this.uci.send('info', 'depth', this.stats.ply, 'seldepth', this.stats.selDepth, 'multipv', i+1, 'score', s.units, s.value, 'pv', pv);
     }
   }
@@ -1847,6 +1849,9 @@ lozChess.prototype.collectRootCandidates = function (turn, limit) {
   else
     board.genMoves(node, turn);
 
+  var saveNodes = this.stats.nodes;
+  var saveSelDepth = this.stats.selDepth;
+
   while (move = node.getNextMove()) {
 
     board.makeMove(node, move);
@@ -1857,7 +1862,7 @@ lozChess.prototype.collectRootCandidates = function (turn, limit) {
       continue;
     }
 
-    var score = -board.evaluate(nextTurn);
+    var score = -this.qSearch(node.childNode, -1, nextTurn, -INFINITY, INFINITY, 0);
     var aggression = 0;
 
     if (move & MOVE_TOOBJ_MASK)
@@ -1884,6 +1889,9 @@ lozChess.prototype.collectRootCandidates = function (turn, limit) {
   if (limit > 0 && candidates.length > limit)
     candidates.length = limit;
 
+  this.stats.nodes = saveNodes;
+  this.stats.selDepth = saveSelDepth;
+
   return candidates;
 }
 
@@ -1897,6 +1905,7 @@ lozChess.prototype.pickHumanMove = function (candidates, bestScore, spec) {
 
   var window = Math.max(5, spec.humanWindowCp | 0);
   var randomCp = Math.max(0, spec.humanRandomCp | 0);
+  var maxLossCp = Math.max(0, spec.humanMaxLossCp | 0);
   var calm = parseFloat(spec.humanCalm);
 
   if (isNaN(calm))
@@ -1905,19 +1914,23 @@ lozChess.prototype.pickHumanMove = function (candidates, bestScore, spec) {
   var pool = [];
 
   for (var i=0; i < candidates.length; i++) {
-    if (candidates[i].rawScore >= bestScore - window)
+    var loss = bestScore - candidates[i].rawScore;
+
+    if (loss <= window && loss <= maxLossCp)
       pool.push(candidates[i]);
   }
 
   if (!pool.length)
-    pool = candidates.slice(0, Math.min(3, candidates.length));
+    pool = candidates.slice(0, 1);
 
   var best = null;
   var bestAdjusted = -INFINITY;
 
   for (var i=0; i < pool.length; i++) {
     var c = pool[i];
-    var jitter = randomCp ? ((Math.random() * 2 - 1) * randomCp) : 0;
+    var scoreGap = Math.max(0, bestScore - c.rawScore);
+    var jitterCap = Math.max(0, Math.min(randomCp, maxLossCp - scoreGap));
+    var jitter = jitterCap ? ((Math.random() * 2 - 1) * jitterCap) : 0;
     var adjusted = c.rawScore - (calm * 25 * c.aggression) + jitter;
 
     if (adjusted > bestAdjusted) {
@@ -2095,7 +2108,7 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
         var units    = 'cp';
         var uciScore = score;
         var mv       = board.formatMove(move,board.mvFmt);
-        var pvStr    = board.getPVStr(node,move,depth);
+        var pvStr    = board.getPVStr(node,move,depth,UCI_FMT);
         
         if (absScore >= MINMATE && absScore <= MATE) {
           if (lozzaHost != HOST_NODEJS)
@@ -6472,7 +6485,7 @@ lozBoard.prototype.playMove = function (moveStr) {
 //}}}
 //{{{  .getPVStr
 
-lozBoard.prototype.getPVStr = function(node,move,depth) {
+lozBoard.prototype.getPVStr = function(node,move,depth,fmt) {
 
   if (!node || !depth)
     return '';
@@ -6483,16 +6496,22 @@ lozBoard.prototype.getPVStr = function(node,move,depth) {
   if (!move)
     return '';
 
+  if (fmt === undefined)
+    fmt = this.mvFmt;
+
   node.cache();
   this.makeMove(node,move);
 
-  var mv = this.formatMove(move, this.mvFmt);
-  var pv = ' ' + this.getPVStr(node.childNode,0,depth-1);
+  var mv = this.formatMove(move, fmt);
+  var pv = this.getPVStr(node.childNode,0,depth-1,fmt);
 
   this.unmakeMove(node,move);
   node.uncache();
 
-  return mv + pv;
+  if (pv)
+    return mv + ' ' + pv;
+
+  return mv;
 }
 
 //}}}
@@ -7075,6 +7094,7 @@ function lozUCI () {
   this.options.HumanWindowCp = '90';
   this.options.HumanRandomCp = '16';
   this.options.HumanCalm = '0.70';
+  this.options.HumanMaxLossCp = '28';
 }
 
 //}}}
@@ -7196,16 +7216,19 @@ lozUCI.prototype.applyHumanPreset = function (preset) {
     this.options.HumanWindowCp = '170';
     this.options.HumanRandomCp = '45';
     this.options.HumanCalm = '1.15';
+    this.options.HumanMaxLossCp = '90';
   }
   else if (p == 'strong') {
     this.options.HumanWindowCp = '40';
     this.options.HumanRandomCp = '6';
     this.options.HumanCalm = '0.35';
+    this.options.HumanMaxLossCp = '12';
   }
   else {
     this.options.HumanWindowCp = '90';
     this.options.HumanRandomCp = '16';
     this.options.HumanCalm = '0.70';
+    this.options.HumanMaxLossCp = '28';
   }
 }
 
@@ -7342,6 +7365,10 @@ onmessage = function(e) {
       uci.spec.humanCalm = parseFloat(uci.options.HumanCalm);
       if (isNaN(uci.spec.humanCalm) || uci.spec.humanCalm < 0)
         uci.spec.humanCalm = 0.70;
+
+      uci.spec.humanMaxLossCp = parseInt(uci.options.HumanMaxLossCp, 10);
+      if (isNaN(uci.spec.humanMaxLossCp) || uci.spec.humanMaxLossCp < 0)
+        uci.spec.humanMaxLossCp = 28;
       
       uci.numMoves++;
       
@@ -7408,6 +7435,7 @@ onmessage = function(e) {
       uci.send('option name HumanWindowCp type spin default 90 min 5 max 300');
       uci.send('option name HumanRandomCp type spin default 16 min 0 max 150');
       uci.send('option name HumanCalm type string default 0.70');
+      uci.send('option name HumanMaxLossCp type spin default 28 min 0 max 300');
       uci.send('uciok');
       
       break;
@@ -7438,7 +7466,7 @@ onmessage = function(e) {
       else {
         uci.options[key] = val;
 
-        if (key == 'HumanStyle' || key == 'HumanWindowCp' || key == 'HumanRandomCp' || key == 'HumanCalm')
+        if (key == 'HumanStyle' || key == 'HumanWindowCp' || key == 'HumanRandomCp' || key == 'HumanCalm' || key == 'HumanMaxLossCp')
           uci.options.HumanPreset = 'custom';
       }
       
