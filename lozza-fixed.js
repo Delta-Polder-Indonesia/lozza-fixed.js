@@ -1385,6 +1385,12 @@ function lozChess () {
 
   this.rootNode = this.nodes[0];
 
+  this.acplWhiteLoss = 0;
+  this.acplBlackLoss = 0;
+  this.acplWhiteMoves = 0;
+  this.acplBlackMoves = 0;
+  this.acplLast = 0;
+
   for (var i=0; i < this.nodes.length; i++)
     this.nodes[i].board = this.board;
 
@@ -1636,6 +1642,11 @@ lozChess.prototype.newGameInit = function () {
 
   this.board.ttInit();
   this.uci.numMoves = 0;
+  this.acplWhiteLoss = 0;
+  this.acplBlackLoss = 0;
+  this.acplWhiteMoves = 0;
+  this.acplBlackMoves = 0;
+  this.acplLast = 0;
 }
 
 //}}}
@@ -1716,6 +1727,7 @@ lozChess.prototype.go = function() {
   var bestMoveStr = '';
   var score       = 0;
   var delta       = 0;
+  var bestScore   = 0;
 
   for (ply=1; ply <= maxPly; ply++) {
 
@@ -1753,6 +1765,59 @@ lozChess.prototype.go = function() {
       break;
   }
 
+  bestScore = score;
+
+  var wantedPV = Math.max(1, spec.multiPV | 0);
+  var candidateCount = Math.max(wantedPV, spec.humanStyle ? 12 : 4);
+  var candidates = this.collectRootCandidates(board.turn, candidateCount);
+
+  if (!candidates.length && this.stats.bestMove) {
+    candidates.push({move: this.stats.bestMove, rawScore: bestScore, aggression: 0});
+  }
+
+  var selected = null;
+
+  var forcingLine = Math.abs(bestScore) >= (MINMATE - 2);
+
+  if (spec.humanStyle && !forcingLine)
+    selected = this.pickHumanMove(candidates, bestScore, spec);
+
+  if (!selected) {
+    var fallbackMove = this.stats.bestMove || (candidates.length ? candidates[0].move : 0);
+    selected = {move: fallbackMove, rawScore: bestScore, aggression: 0};
+  }
+
+  this.stats.bestMove = selected.move;
+
+  var lastLoss = Math.max(0, bestScore - selected.rawScore);
+  this.acplLast = lastLoss;
+
+  if (board.turn == WHITE) {
+    this.acplWhiteLoss += lastLoss;
+    this.acplWhiteMoves++;
+  }
+  else {
+    this.acplBlackLoss += lastLoss;
+    this.acplBlackMoves++;
+  }
+
+  if (wantedPV > 1 && candidates.length) {
+    var maxPV = Math.min(wantedPV, candidates.length);
+    for (var i=0; i < maxPV; i++) {
+      var c = candidates[i];
+      var s = this.toUciScore(c.rawScore);
+      var pv = board.getPVStr(this.rootNode, c.move, Math.max(1, this.stats.ply), UCI_FMT);
+      this.uci.send('info', 'depth', this.stats.ply, 'seldepth', this.stats.selDepth, 'multipv', i+1, 'score', s.units, s.value, 'pv', pv);
+    }
+  }
+
+  var evalBar = this.scoreToEvalBar(selected.rawScore);
+  var wAcpl = this.acplWhiteMoves ? myround(this.acplWhiteLoss / this.acplWhiteMoves) : 0;
+  var bAcpl = this.acplBlackMoves ? myround(this.acplBlackLoss / this.acplBlackMoves) : 0;
+
+  this.uci.send('info string evalbar', evalBar);
+  this.uci.send('info string acpl white', wAcpl, 'black', bAcpl, 'last', myround(lastLoss));
+
   this.stats.update();
   this.stats.stop();
 
@@ -1762,6 +1827,151 @@ lozChess.prototype.go = function() {
     board.makeMove(this.rootNode,this.stats.bestMove);
 
   this.uci.send('bestmove',bestMoveStr);
+}
+
+//}}}
+//{{{  .collectRootCandidates
+
+lozChess.prototype.collectRootCandidates = function (turn, limit) {
+
+  var board = this.board;
+  var node = this.rootNode;
+  var nextTurn = ~turn & COLOR_MASK;
+  var move = 0;
+  var candidates = [];
+  var inCheck = board.isKingAttacked(nextTurn);
+
+  node.cache();
+  board.ttGet(node, 0, -INFINITY, INFINITY);
+
+  if (inCheck)
+    board.genEvasions(node, turn);
+  else
+    board.genMoves(node, turn);
+
+  var saveNodes = this.stats.nodes;
+  var saveSelDepth = this.stats.selDepth;
+
+  while (move = node.getNextMove()) {
+
+    board.makeMove(node, move);
+
+    if (board.isKingAttacked(nextTurn)) {
+      board.unmakeMove(node, move);
+      node.uncache();
+      continue;
+    }
+
+    var score = -this.qSearch(node.childNode, -1, nextTurn, -INFINITY, INFINITY, 0);
+    var aggression = 0;
+
+    if (move & MOVE_TOOBJ_MASK)
+      aggression += 1;
+    if (move & MOVE_PROMOTE_MASK)
+      aggression += 2;
+    if (board.isKingAttacked(turn))
+      aggression += 1;
+    if (move & MOVE_CASTLE_MASK)
+      aggression -= 1;
+    if (aggression < 0)
+      aggression = 0;
+
+    candidates.push({move: move, rawScore: score, aggression: aggression});
+
+    board.unmakeMove(node, move);
+    node.uncache();
+  }
+
+  candidates.sort(function(a, b) {
+    return b.rawScore - a.rawScore;
+  });
+
+  if (limit > 0 && candidates.length > limit)
+    candidates.length = limit;
+
+  this.stats.nodes = saveNodes;
+  this.stats.selDepth = saveSelDepth;
+
+  return candidates;
+}
+
+//}}}
+//{{{  .pickHumanMove
+
+lozChess.prototype.pickHumanMove = function (candidates, bestScore, spec) {
+
+  if (!candidates.length)
+    return null;
+
+  var window = Math.max(5, spec.humanWindowCp | 0);
+  var randomCp = Math.max(0, spec.humanRandomCp | 0);
+  var maxLossCp = Math.max(0, spec.humanMaxLossCp | 0);
+  var calm = parseFloat(spec.humanCalm);
+
+  if (isNaN(calm))
+    calm = 0.7;
+
+  var pool = [];
+
+  for (var i=0; i < candidates.length; i++) {
+    var loss = bestScore - candidates[i].rawScore;
+
+    if (loss <= window && loss <= maxLossCp)
+      pool.push(candidates[i]);
+  }
+
+  if (!pool.length)
+    pool = candidates.slice(0, 1);
+
+  var best = null;
+  var bestAdjusted = -INFINITY;
+
+  for (var i=0; i < pool.length; i++) {
+    var c = pool[i];
+    var scoreGap = Math.max(0, bestScore - c.rawScore);
+    var jitterCap = Math.max(0, Math.min(randomCp, maxLossCp - scoreGap));
+    var jitter = jitterCap ? ((Math.random() * 2 - 1) * jitterCap) : 0;
+    var adjusted = c.rawScore - (calm * 25 * c.aggression) + jitter;
+
+    if (adjusted > bestAdjusted) {
+      bestAdjusted = adjusted;
+      best = c;
+    }
+  }
+
+  return best;
+}
+
+//}}}
+//{{{  .toUciScore
+
+lozChess.prototype.toUciScore = function (score) {
+
+  var absScore = Math.abs(score);
+
+  if (absScore >= MINMATE && absScore <= MATE) {
+    var mate = (MATE - absScore) / 2 | 0;
+    if (score < 0)
+      mate = -mate;
+    return {units: 'mate', value: mate};
+  }
+
+  return {units: 'cp', value: score};
+}
+
+//}}}
+//{{{  .scoreToEvalBar
+
+lozChess.prototype.scoreToEvalBar = function (score) {
+
+  var bar = 50 + myround(score / 12);
+
+  if (bar < 0)
+    bar = 0;
+  else if (bar > 100)
+    bar = 100;
+
+  return bar;
 }
 
 //}}}
@@ -1898,7 +2108,7 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
         var units    = 'cp';
         var uciScore = score;
         var mv       = board.formatMove(move,board.mvFmt);
-        var pvStr    = board.getPVStr(node,move,depth);
+        var pvStr    = board.getPVStr(node,move,depth,UCI_FMT);
         
         if (absScore >= MINMATE && absScore <= MATE) {
           if (lozzaHost != HOST_NODEJS)
@@ -4295,8 +4505,11 @@ lozBoard.prototype.isAttacked = function(to, byCol) {
 
 lozBoard.prototype.formatMove = function (move, fmt) {
 
-  if (move == 0)
+  if (move == 0) {
+    if (fmt == UCI_FMT)
+      return '0000';
     return 'NULL';
+  }
 
   var fr    = (move & MOVE_FR_MASK   ) >>> MOVE_FR_BITS;
   var to    = (move & MOVE_TO_MASK   ) >>> MOVE_TO_BITS;
@@ -6272,7 +6485,7 @@ lozBoard.prototype.playMove = function (moveStr) {
 //}}}
 //{{{  .getPVStr
 
-lozBoard.prototype.getPVStr = function(node,move,depth) {
+lozBoard.prototype.getPVStr = function(node,move,depth,fmt) {
 
   if (!node || !depth)
     return '';
@@ -6283,16 +6496,22 @@ lozBoard.prototype.getPVStr = function(node,move,depth) {
   if (!move)
     return '';
 
+  if (fmt === undefined)
+    fmt = this.mvFmt;
+
   node.cache();
   this.makeMove(node,move);
 
-  var mv = this.formatMove(move, this.mvFmt);
-  var pv = ' ' + this.getPVStr(node.childNode,0,depth-1);
+  var mv = this.formatMove(move, fmt);
+  var pv = this.getPVStr(node.childNode,0,depth-1,fmt);
 
   this.unmakeMove(node,move);
   node.uncache();
 
-  return mv + pv;
+  if (pv)
+    return mv + ' ' + pv;
+
+  return mv;
 }
 
 //}}}
@@ -6869,6 +7088,13 @@ function lozUCI () {
   this.numMoves  = 0;
 
   this.options = {};
+  this.options.MultiPV = '1';
+  this.options.HumanPreset = 'normal';
+  this.options.HumanStyle = 'true';
+  this.options.HumanWindowCp = '90';
+  this.options.HumanRandomCp = '16';
+  this.options.HumanCalm = '0.70';
+  this.options.HumanMaxLossCp = '28';
 }
 
 //}}}
@@ -6967,6 +7193,43 @@ lozUCI.prototype.getArr = function (key, to) {
   }
 
   return {lo:lo, hi:hi};
+}
+
+//}}}
+//{{{  .applyHumanPreset
+
+lozUCI.prototype.applyHumanPreset = function (preset) {
+
+  var p = ('' + preset).toLowerCase();
+
+  if (p != 'easy' && p != 'normal' && p != 'strong' && p != 'custom')
+    p = 'normal';
+
+  this.options.HumanPreset = p;
+
+  if (p == 'custom')
+    return;
+
+  this.options.HumanStyle = 'true';
+
+  if (p == 'easy') {
+    this.options.HumanWindowCp = '170';
+    this.options.HumanRandomCp = '45';
+    this.options.HumanCalm = '1.15';
+    this.options.HumanMaxLossCp = '90';
+  }
+  else if (p == 'strong') {
+    this.options.HumanWindowCp = '40';
+    this.options.HumanRandomCp = '6';
+    this.options.HumanCalm = '0.35';
+    this.options.HumanMaxLossCp = '12';
+  }
+  else {
+    this.options.HumanWindowCp = '90';
+    this.options.HumanRandomCp = '16';
+    this.options.HumanCalm = '0.70';
+    this.options.HumanMaxLossCp = '28';
+  }
 }
 
 //}}}
@@ -7081,6 +7344,32 @@ onmessage = function(e) {
       uci.spec.bInc      = uci.getInt('binc',0);
       uci.spec.movesToGo = uci.getInt('movestogo',0);
       
+      var multiPVDefault = parseInt(uci.options.MultiPV, 10);
+      if (isNaN(multiPVDefault) || multiPVDefault < 1)
+        multiPVDefault = 1;
+
+      uci.spec.multiPV = Math.max(1, uci.getInt('multipv', multiPVDefault));
+
+      var humanStyleRaw = '' + uci.options.HumanStyle;
+      humanStyleRaw = humanStyleRaw.toLowerCase();
+      uci.spec.humanStyle = !(humanStyleRaw == 'false' || humanStyleRaw == '0' || humanStyleRaw == 'off' || humanStyleRaw == 'no');
+
+      uci.spec.humanWindowCp = parseInt(uci.options.HumanWindowCp, 10);
+      if (isNaN(uci.spec.humanWindowCp) || uci.spec.humanWindowCp < 5)
+        uci.spec.humanWindowCp = 90;
+
+      uci.spec.humanRandomCp = parseInt(uci.options.HumanRandomCp, 10);
+      if (isNaN(uci.spec.humanRandomCp) || uci.spec.humanRandomCp < 0)
+        uci.spec.humanRandomCp = 16;
+
+      uci.spec.humanCalm = parseFloat(uci.options.HumanCalm);
+      if (isNaN(uci.spec.humanCalm) || uci.spec.humanCalm < 0)
+        uci.spec.humanCalm = 0.70;
+
+      uci.spec.humanMaxLossCp = parseInt(uci.options.HumanMaxLossCp, 10);
+      if (isNaN(uci.spec.humanMaxLossCp) || uci.spec.humanMaxLossCp < 0)
+        uci.spec.humanMaxLossCp = 28;
+      
       uci.numMoves++;
       
       lozza.go();
@@ -7140,6 +7429,13 @@ onmessage = function(e) {
       
       uci.send('id name Lozza',BUILD);
       uci.send('id author Colin Jenkins');
+      uci.send('option name MultiPV type spin default 1 min 1 max 8');
+      uci.send('option name HumanPreset type combo default normal var easy var normal var strong var custom');
+      uci.send('option name HumanStyle type check default false');
+      uci.send('option name HumanWindowCp type spin default 0 min 0 max 500');
+      uci.send('option name HumanMaxLossCp type spin default 0 min 0 max 500');
+      uci.send('option name HumanRandomCp type spin default 0 min 0 max 100');
+      uci.send('option name HumanCalm type spin default 300 min 0 max 500');
       uci.send('uciok');
       
       break;
@@ -7160,8 +7456,19 @@ onmessage = function(e) {
       
       var key = uci.getStr('name');
       var val = uci.getStr('value');
-      
-      uci.options[key] = val;
+
+      if (!val)
+        val = '';
+
+      if (key == 'HumanPreset') {
+        uci.applyHumanPreset(val);
+      }
+      else {
+        uci.options[key] = val;
+
+        if (key == 'HumanStyle' || key == 'HumanWindowCp' || key == 'HumanRandomCp' || key == 'HumanCalm' || key == 'HumanMaxLossCp')
+          uci.options.HumanPreset = 'custom';
+      }
       
       break;
       
