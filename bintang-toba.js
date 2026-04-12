@@ -1682,7 +1682,7 @@ lozChess.prototype.go = function() {
   var spec  = this.uci.spec;
   var moveOverhead = this.uci.getOptionInt('Move Overhead', 0);
 
-  board.mvFmt = this.uci.getOption('PVFormat', lozzaHost == HOST_WEB ? 'san' : 'uci') == 'san' ? SAN_FMT : UCI_FMT;
+  board.mvFmt = this.uci.getOption('PVFormat', 'uci') == 'san' ? SAN_FMT : UCI_FMT;
 
   //{{{  sort out spec
   
@@ -7124,7 +7124,7 @@ lozUCI.prototype.initOptions = function () {
   this.options['UCI_AnalyseMode'] = false;
   this.options['UCI_ShowWDL'] = false;
   this.options['UCI_ShowACPL'] = false;
-  this.options['PVFormat'] = lozzaHost == HOST_WEB ? 'san' : 'uci';
+  this.options['PVFormat'] = 'uci';
 }
 
 //}}}
