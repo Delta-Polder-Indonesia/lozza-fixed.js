@@ -273,6 +273,39 @@
     // Dutch / Bird
     'd2d4 f7f5 g2g3 g8f6 f1g2 e7e6 g1f3',
     'f2f4 d7d5 g1f3 g8f6 e2e3 g7g6',
+
+    // Deep Ruy Lopez archive (extended practical line set)
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f8e7 f1e1 b7b5 a4b3 d7d6 c2c3 c6a5 b3c2 c7c5 d2d4 d8b6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f8e7 f1e1 b7b5 a4b3 d7d6 c2c3 c6a5 b3c2 c7c5 d2d4 d8b6 b1d2',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1',
+  ];
+
+  const BENCH_FENS = [
+    START_FEN,
+    'r1bq1rk1/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 4 7',
+    'r3r1k1/pp1n1pp1/2p2q1p/3p4/3P4/2N1PN2/PPQ2PPP/2R2RK1 w - - 0 16',
+    '2r2rk1/1bq1bppp/p2ppn2/1p6/3NP3/1BN1B3/PPP2PPP/2RQ1RK1 w - - 2 13',
+    '8/2p5/2P1k3/3pP3/3P4/4K3/8/8 w - - 0 1',
+    'r4rk1/1pp1qppp/p1np1n2/4p3/2BPP3/2N2N2/PPP2PPP/R1BQR1K1 w - - 3 11',
   ];
 
   /* ────────────────────────────────────────────────────────── */
@@ -313,9 +346,20 @@
       this.size = ttSlotsFromMb(hashMb);
       this.mask = this.size - 1;
       this.data = new Int32Array(this.size * TT_WORDS);
+      this.ages = new Uint16Array(this.size);
+      this.epoch = 1;
     }
 
-    clear() { this.data.fill(0); }
+    clear() {
+      this.data.fill(0);
+      this.ages.fill(0);
+      this.epoch = 1;
+    }
+
+    nextEpoch() {
+      this.epoch = (this.epoch + 1) & 0xffff;
+      if (this.epoch === 0) this.epoch = 1;
+    }
 
     _idx(hash) { return ((hash >>> 0) & this.mask) * TT_WORDS; }
 
@@ -339,19 +383,25 @@
 
     store(hash, depth, score, flag, bestEncoded) {
       const i = this._idx(hash);
+      const slot = (i / TT_WORDS) | 0;
       const key = (hash >>> 0) | 0;
       const oldKey = this.data[i + TT_HASH];
       const oldDepth = this.data[i + TT_DEPTH];
       const oldFlag = this.data[i + TT_FLAG];
+      const age = oldKey ? ((this.epoch - this.ages[slot]) & 0xffff) : 0xffff;
 
-      // Depth-preferred replacement: never overwrite a deeper entry.
-      if (oldKey !== 0 && oldDepth > depth) {
+      // Depth-preferred replacement with aging:
+      // keep deeper entries if they are recent, but allow stale replacement.
+      if (oldKey !== 0 && oldDepth > depth && age <= 1) {
+        return;
+      }
+      if (oldKey !== 0 && oldDepth > depth + 2 && age <= 4) {
         return;
       }
 
       // If same depth, keep exact entries over bounds.
       if (oldKey !== 0 && oldDepth === depth) {
-        if (oldFlag === 0 && flag !== 0) return;
+        if (oldFlag === 0 && flag !== 0 && age <= 2) return;
       }
 
       // Preserve previous best move when a bound update has no move.
@@ -362,6 +412,7 @@
       this.data[i + TT_SCORE] = score;
       this.data[i + TT_FLAG]  = flag;
       this.data[i + TT_BEST]  = best;
+      this.ages[slot] = this.epoch;
     }
 
     hashfull() {
@@ -423,7 +474,10 @@
         Hash: DEFAULT_HASH_MB,
         MultiPV: 1,
         Ponder: false,
+        StrengthPreset: 'Custom',
         SkillLevel: 20,
+        UCI_LimitStrength: false,
+        UCI_Elo: 2000,
         OwnBook: true,
         BookMaxPly: 16,
         MoveOverhead: 0,
@@ -439,6 +493,8 @@
       this.startTime = 0;
       this.moveTime  = 0;
       this.maxNodes  = 0;
+      this.selDepthHard = 0;
+      this.effectiveSkillLevel = 20;
       this.pondering = false;
       this.lastGoSpec = null;
       this.searchTimer = null;
@@ -1650,6 +1706,7 @@
       this._checkTime();
       if (this.stop) return alpha;
       if (this.isDraw()||this.isInsufficientMaterial()) return 0;
+      if (this.selDepthHard > 0 && ply >= this.selDepthHard) return this.evaluate();
 
       this.nodes++;
       this.selDepth = Math.max(this.selDepth, ply);
@@ -1704,6 +1761,7 @@
       if (this.stop) return 0;
       this._checkTime();
       if (this.stop) return 0;
+      if (this.selDepthHard > 0 && ply >= this.selDepthHard) return this.evaluate();
 
       const isPV = beta - alpha > 1;
       this.nodes++;
@@ -1863,6 +1921,143 @@
       }
     }
 
+    _strengthProfileFromElo(elo) {
+      const e = Math.max(800, Math.min(2800, elo | 0));
+      const t = (e - 800) / 2000; // 0..1
+      const skill = Math.max(0, Math.min(20, Math.round(t * 20)));
+      const depthCap = Math.max(1, Math.min(64, Math.round(2 + t * 16)));
+      const nodeCap = Math.max(800, Math.round(1500 + t * t * 800000));
+      return { skill, depthCap, nodeCap };
+    }
+
+    _resolveSearchStrength(spec) {
+      let skill = Math.max(0, Math.min(20, this.options.SkillLevel | 0));
+      let depthCap = 64;
+      let nodeCap = Math.max(0, spec.maxNodes | 0);
+
+      if (this.options.UCI_LimitStrength) {
+        const prof = this._strengthProfileFromElo(this.options.UCI_Elo | 0);
+        skill = prof.skill;
+        depthCap = Math.min(depthCap, prof.depthCap);
+        nodeCap = nodeCap > 0 ? Math.min(nodeCap, prof.nodeCap) : prof.nodeCap;
+      }
+
+      return { skill, depthCap, nodeCap };
+    }
+
+    applyStrengthPreset(name) {
+      const key = String(name || '').trim().toLowerCase();
+      if (!key || key === 'custom') {
+        this.options.StrengthPreset = 'Custom';
+        return;
+      }
+
+      const map = {
+        elo1200: { elo: 1200, skill: 11 },
+        elo1500: { elo: 1500, skill: 14 },
+        elo1800: { elo: 1800, skill: 17 },
+        elo2200: { elo: 2200, skill: 20 },
+        max: { elo: 2800, skill: 20, full: true },
+      };
+
+      const p = map[key];
+      if (!p) return;
+
+      if (p.full) {
+        this.options.UCI_LimitStrength = false;
+        this.options.UCI_Elo = 2800;
+        this.options.SkillLevel = 20;
+        this.options.StrengthPreset = 'Max';
+      } else {
+        this.options.UCI_LimitStrength = true;
+        this.options.UCI_Elo = p.elo;
+        this.options.SkillLevel = p.skill;
+        this.options.StrengthPreset = `Elo${p.elo}`;
+      }
+
+      this.send('info string preset', this.options.StrengthPreset,
+        'limit', this.options.UCI_LimitStrength ? 'on' : 'off',
+        'elo', this.options.UCI_Elo,
+        'skill', this.options.SkillLevel);
+    }
+
+    runBench(depth = 6) {
+      const d = Math.max(1, Math.min(12, depth | 0));
+      const savedFen = this.getFen();
+      const savedAnalyze = this.options.UCI_AnalyseMode;
+
+      this.options.UCI_AnalyseMode = true;
+      let totalNodes = 0;
+      const benchStart = Date.now();
+
+      for (let i = 0; i < BENCH_FENS.length; i++) {
+        this.setFen(BENCH_FENS[i]);
+        this.stop = false;
+        this.nodes = 0;
+        this.selDepth = 0;
+        this.startTime = Date.now();
+        this.moveTime = 0;
+        this.maxNodes = 0;
+        this.selDepthHard = 0;
+        this.evalTrace.fill(0);
+        this.tt.nextEpoch();
+        this.histTable.fill(0);
+        for (const k of this.killers) { k[0] = 0; k[1] = 0; }
+
+        let rootMoves = this.genMoves(false);
+        if (!rootMoves.length) {
+          this.send('info string benchpos', i + 1, 'no legal move');
+          continue;
+        }
+
+        let bestMove = rootMoves[0];
+        for (let curDepth = 1; curDepth <= d; curDepth++) {
+          let alpha = -INF;
+          const beta = INF;
+          let bestScore = -INF;
+          const ttEnc = this.tt.getBestMove(this.hash);
+          this.scoreMoves(rootMoves, ttEnc, 0);
+
+          for (let mi = 0; mi < rootMoves.length; mi++) {
+            const m = this.pickNextMove(rootMoves, mi);
+            this.makeMove(m);
+            const score = -this.negamax(curDepth - 1, -beta, -alpha, 1, true);
+            this.undoMove();
+            if (score > bestScore) {
+              bestScore = score;
+              bestMove = m;
+            }
+            if (score > alpha) alpha = score;
+          }
+
+          const bi = rootMoves.indexOf(bestMove);
+          if (bi > 0) {
+            const t = rootMoves[0];
+            rootMoves[0] = rootMoves[bi];
+            rootMoves[bi] = t;
+          }
+        }
+
+        const posTime = Math.max(1, Date.now() - this.startTime);
+        totalNodes += this.nodes;
+        this.send('info string benchpos', i + 1,
+          'nodes', this.nodes,
+          'time', posTime,
+          'nps', Math.floor(this.nodes * 1000 / posTime),
+          'bestmove', this.moveToUci(bestMove));
+      }
+
+      const totalTime = Math.max(1, Date.now() - benchStart);
+      this.send('info string bench total', 'nodes', totalNodes,
+        'time', totalTime,
+        'nps', Math.floor(totalNodes * 1000 / totalTime),
+        'depth', d,
+        'positions', BENCH_FENS.length);
+
+      this.setFen(savedFen);
+      this.options.UCI_AnalyseMode = savedAnalyze;
+    }
+
     calcMoveTime(spec) {
       if (spec.moveTime) {
         return Math.max(1, spec.moveTime - this.options.MoveOverhead);
@@ -1871,7 +2066,16 @@
       const inc = this.side === WHITE ? (spec.winc||0)  : (spec.binc||0);
       const mtg = spec.movestogo || 30;
       if (!t) return 5000;
-      return Math.max(1, Math.floor(t / Math.max(5, mtg) + inc * 0.75) - this.options.MoveOverhead);
+
+      // Stable time allocation with emergency floor and hard upper cap.
+      const overhead = this.options.MoveOverhead | 0;
+      const base = t / Math.max(10, mtg + 2) + inc * 0.6;
+      const emergency = t < 10000 ? t * 0.08 : t * 0.035;
+      let alloc = Math.max(base, emergency) - overhead;
+
+      const hardCap = t < 3000 ? t * 0.25 : t * 0.45;
+      alloc = Math.min(alloc, hardCap);
+      return Math.max(1, Math.floor(alloc));
     }
 
     describeScore(score) {
@@ -1919,7 +2123,7 @@
 
     pickSkillMove(scoredMoves) {
       if (!scoredMoves || !scoredMoves.length) return null;
-      const skill = Math.max(0, Math.min(20, this.options.SkillLevel | 0));
+      const skill = Math.max(0, Math.min(20, this.effectiveSkillLevel | 0));
       if (skill >= 20 || scoredMoves.length === 1) return scoredMoves[0].m;
 
       const bestScore = scoredMoves[0].score;
@@ -2033,14 +2237,19 @@
       this.selDepth  = 0;
       this.startTime = Date.now();
       this.moveTime  = this.calcMoveTime(spec);
-      this.maxNodes  = Math.max(0, spec.maxNodes | 0);
+      this.selDepthHard = Math.max(0, spec.selDepth | 0);
       this.evalTrace.fill(0);
+      this.tt.nextEpoch();
+
+      const strength = this._resolveSearchStrength(spec);
+      this.maxNodes = strength.nodeCap;
+      this.effectiveSkillLevel = strength.skill;
 
       /* Reset history heuristic and killers each search */
       this.histTable.fill(0);
       for (const k of this.killers) { k[0] = 0; k[1] = 0; }
 
-      const depthLimit = Math.max(1, Math.min(64, spec.depth || 64));
+      const depthLimit = Math.max(1, Math.min(strength.depthCap, Math.min(64, spec.depth || 64)));
       const multiPV    = Math.max(1, Math.min(12, (spec.multiPV || this.options.MultiPV) | 0));
       const outFmt     = this.options.PVFormat === 'san' ? 'san' : 'uci';
 
@@ -2232,9 +2441,9 @@
         depth:0, moveTime:0,
         wtime:0, btime:0, winc:0, binc:0, movestogo:30,
         multiPV:0, infinite:false, ponder:false,
-        maxNodes:0, searchMoves:[],
+        maxNodes:0, selDepth:0, searchMoves:[],
       };
-      const stopWords = new Set(['searchmoves','ponder','wtime','btime','winc','binc','movestogo','depth','nodes','mate','movetime','infinite','multipv']);
+      const stopWords = new Set(['searchmoves','ponder','wtime','btime','winc','binc','movestogo','depth','nodes','mate','movetime','infinite','multipv','seldepth']);
       for (let i = 1; i < tokens.length; i++) {
         const t = tokens[i], v = Number(tokens[i+1]);
         if (t==='infinite')   { spec.infinite=true; }
@@ -2242,6 +2451,7 @@
         if (t==='depth')      { spec.depth=v; }
         if (t==='movetime')   { spec.moveTime=v; }
         if (t==='nodes')      { spec.maxNodes=v; }
+        if (t==='seldepth')   { spec.selDepth=v; }
         if (t==='wtime')      { spec.wtime=v; }
         if (t==='btime')      { spec.btime=v; }
         if (t==='winc')       { spec.winc=v; }
@@ -2287,6 +2497,10 @@
           : 20;
         return;
       }
+      if (name === 'Strength Preset') {
+        this.applyStrengthPreset(value);
+        return;
+      }
       if (name === 'Ponder') {
         this.options.Ponder = BOOL_RE.test(value.trim());
         return;
@@ -2305,6 +2519,14 @@
       }
       if (name === 'UCI_AnalyseMode') {
         this.options.UCI_AnalyseMode = BOOL_RE.test(value.trim());
+        return;
+      }
+      if (name === 'UCI_LimitStrength') {
+        this.options.UCI_LimitStrength = BOOL_RE.test(value.trim());
+        return;
+      }
+      if (name === 'UCI_Elo') {
+        this.options.UCI_Elo = Math.max(800, Math.min(2800, +value || 2000));
         return;
       }
       if (name === 'UCI_ShowWDL') {
@@ -2355,6 +2577,7 @@
           this.send('option name Clear Hash type button');
           this.send('option name Hash type spin default', DEFAULT_HASH_MB, 'min', MIN_HASH_MB, 'max', MAX_HASH_MB);
           this.send('option name MultiPV type spin default 1 min 1 max 12');
+          this.send('option name Strength Preset type combo default Custom var Custom var Elo1200 var Elo1500 var Elo1800 var Elo2200 var Max');
           this.send('option name Skill Level type spin default 20 min 0 max 20');
           this.send('option name Threads type spin default 1 min 1 max 1');
           this.send('option name Ponder type check default false');
@@ -2362,6 +2585,8 @@
           this.send('option name BookMaxPly type spin default 16 min 0 max 40');
           this.send('option name Move Overhead type spin default 0 min 0 max 10000');
           this.send('option name UCI_AnalyseMode type check default false');
+          this.send('option name UCI_LimitStrength type check default false');
+          this.send('option name UCI_Elo type spin default 2000 min 800 max 2800');
           this.send('option name UCI_ShowWDL type check default false');
           this.send('option name UCI_ShowACPL type check default false');
           this.send('option name PVFormat type combo default uci var uci var san');
@@ -2402,6 +2627,13 @@
         case 'ping':
           this.send('info string', this.name, 'is alive');
           break;
+        case 'bench': {
+          let d = 6;
+          if (tokens[1] === 'depth' && tokens[2]) d = Number(tokens[2]) || 6;
+          else if (tokens[1]) d = Number(tokens[1]) || 6;
+          this.runBench(d);
+          break;
+        }
         case 'board':
           this.send('info string board', this.getFen());
           break;
