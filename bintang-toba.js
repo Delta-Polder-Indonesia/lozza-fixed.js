@@ -1779,14 +1779,10 @@ lozChess.prototype.go = function() {
 
 lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
 
-  //{{{  housekeeping
-  
   if (!node.childNode) {
     this.stats.timeOut = 1;
     return;
   }
-  
-  //}}}
 
   this.stats.nodes++;
 
@@ -1809,7 +1805,7 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
 
   node.cache();
 
-  board.ttGet(node, depth, alpha, beta);  // load hash move.
+  board.ttGet(node, depth, alpha, beta);
 
   if (inCheck)
     board.genEvasions(node, turn);
@@ -1823,14 +1819,9 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
 
     board.makeMove(node,move);
 
-    //{{{  legal?
-    
     if (board.isKingAttacked(nextTurn)) {
-    
       board.unmakeMove(node,move);
-    
       node.uncache();
-    
       continue;
     }
 
@@ -1842,59 +1833,47 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
         continue;
       }
     }
-    
-    //}}}
 
     numLegalMoves++;
     if (node.base < BASE_LMR)
       numSlides++;
 
-    //{{{  send current move to UCI
-    
     if (this.stats.splits > 3)
-      this.uci.send('info currmove ' + board.formatMove(move,SAN_FMT) + ' currmovenumber ' + numLegalMoves);
-    
-    //}}}
+      this.uci.send('info currmove ' + board.formatMove(move,UCI_FMT) + ' currmovenumber ' + numLegalMoves);
 
-    //{{{  extend/reduce
-    
     givesCheck = INCHECK_UNKNOWN;
     E          = 0;
     R          = 0;
-    
+
     if (inCheck) {
       E = 1;
-    }
-    
-    else if (doLMR) {
-    
+    } else if (doLMR) {
       givesCheck = board.isKingAttacked(turn);
       keeper     = node.base >= BASE_LMR || (move & KEEPER_MASK) || givesCheck || board.alphaMate(alpha);
-    
       if (!keeper && numSlides > 4) {
         R = 1 + depth/5 + numSlides/20 | 0;
       }
     }
-    
-    //}}}
 
     score = -this.alphabeta(node.childNode, depth+E-1, nextTurn, -INFINITY, INFINITY, NULL_Y, givesCheck);
 
-    //{{{  unmake move
-    
     board.unmakeMove(node,move);
-    
     node.uncache();
-    
-    //}}}
 
     if (this.stats.timeOut) {
       return;
     }
 
-    var pvStr = board.getPVStr(node,move,depth,board.mvFmt).trim();
+    var pvStr    = board.getPVStr(node,move,depth,board.mvFmt).trim();
     var pvUciStr = board.getPVStr(node,move,depth,UCI_FMT).trim();
     rootMoves.push(this.makeRootMove(move, score, depth, pvStr, pvUciStr));
+
+    // Tambahan: kirim rantai PV dalam format UCI
+    this.uci.send(
+      "info depth " + depth +
+      " score cp " + score +
+      " pv " + pvUciStr
+    );
 
     if (score > bestScore) {
       if (score > alpha) {
@@ -1904,11 +1883,10 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
       }
       bestScore = score;
       bestMove  = move;
-    }
-    else
+    } else {
       board.addHistory(-depth, move);
+    }
   }
-
 
   if (numLegalMoves == 0) {
     this.stats.rootMoves = [];
@@ -1922,14 +1900,13 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
   this.stats.rootMoves = rootMoves;
 
   if (numLegalMoves == 1)
-    this.stats.timeOut = 1;  // only one legal move so don't waste any more time.
+    this.stats.timeOut = 1;
 
   if (bestScore > oAlpha) {
     board.ttPut(TT_EXACT, depth, bestScore, bestMove, node.ply, alpha, beta, INFINITY);
     return bestScore;
-  }
-  else {
-    board.ttPut(TT_ALPHA, depth, oAlpha,    bestMove, node.ply, alpha, beta, INFINITY);
+  } else {
+    board.ttPut(TT_ALPHA, depth, oAlpha, bestMove, node.ply, alpha, beta, INFINITY);
     return oAlpha;
   }
 }
