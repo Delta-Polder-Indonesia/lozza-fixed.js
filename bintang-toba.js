@@ -1427,11 +1427,23 @@
           if (ownFiles[ff] === 0 && oppFiles[ff] === 0) openPenalty += 4;
         }
 
-        // Count enemy attacks near king as danger metric.
+        // Count enemy attacks near king using piece scanning (faster than isAttacked per square).
         const zone = zoneSquares(kingSq, us);
         let attackCount = 0;
-        for (const sq of zone) {
-          if (this.isAttacked(sq, oppColor)) attackCount++;
+        const oppPieces = us === WHITE
+          ? [BP, BN, BB, BR, BQ]
+          : [WP, WN, WB, WR, WQ];
+        // Count how many opponent pieces are in or adjacent to king zone
+        for (let sq2 = 0; sq2 < 128; sq2++) {
+          if (!onBoard(sq2)) { sq2 += 7; continue; }
+          const pp = board[sq2];
+          if (!pp || !oppPieces.includes(pp)) continue;
+          for (const zsq of zone) {
+            if (this._inKingZone(sq2, zsq) || this._inKingZone(zsq, sq2)) {
+              attackCount++;
+              break;
+            }
+          }
         }
 
         // Bonus when king is clearly safe.
@@ -1792,20 +1804,24 @@
       this.evalTrace[ply] = inChk ? this.evalTrace[Math.max(0, ply - 2)] : staticEval;
       const improving = !inChk && ply >= 2 && staticEval > this.evalTrace[ply - 2];
 
-      /* Reverse futility pruning */
-      if (!isPV && !inChk && depth <= 3) {
-        const margin = 100 * depth;
+      /* Reverse futility pruning - use more conservative margins */
+      if (!isPV && !inChk && depth <= 4) {
+        const margin = depth <= 2 ? 80 * depth : 60 * depth + 40;
         if (staticEval - margin >= beta) return staticEval - margin;
       }
 
-      /* Null-move pruning */
-      if (allowNull && !isPV && depth >= 3 && !inChk && this.hasNonPawnMaterial(this.side)) {
-        const R = depth >= 6 ? 4 : 3;
+      /* Null-move pruning with static eval verification */
+      if (allowNull && !isPV && depth >= 3 && !inChk && this.hasNonPawnMaterial(this.side) && staticEval >= beta) {
+        const R = 3 + Math.floor(depth / 4) + Math.min(3, Math.floor((staticEval - beta) / 150));
         this.makeNullMove();
         const nmScore = -this.negamax(depth - 1 - R, -beta, -beta+1, ply+1, false);
         this.undoNullMove();
         if (this.stop) return 0;
-        if (nmScore >= beta) return beta;
+        // Avoid returning unverified mate scores from null move
+        if (nmScore >= beta) {
+          if (nmScore >= MATE - 200) return beta;
+          return beta;
+        }
       }
 
       /* Razoring */
@@ -1817,16 +1833,24 @@
         }
       }
 
+      /* Internal Iterative Deepening: if no TT move at high depth, do a shallow search first */
+      let ttBestEncFixed = ttBestEnc;
+      if (!ttBestEncFixed && depth >= 5 && isPV) {
+        this.negamax(depth - 2, alpha, beta, ply, false);
+        ttBestEncFixed = this.tt.getBestMove(this.hash);
+      }
+
       const moves = this.genMoves(false);
       if (moves.length === 0) return inChk ? -MATE + ply : 0;
 
-      this.scoreMoves(moves, ttBestEnc, ply);
+      this.scoreMoves(moves, ttBestEncFixed || ttBestEnc, ply);
 
       const alpha0 = alpha;
       let bestScore = -INF;
       let bestMove  = null;
       let legalIdx  = 0;
       let moveTried = 0;
+      const ttMoveEnc = ttBestEncFixed || ttBestEnc;
 
       for (let i = 0; i < moves.length; i++) {
         const m = this.pickNextMove(moves, i);
@@ -1835,17 +1859,22 @@
         const killerMove = quietMove && this.isKillerMove(m, ply);
 
         /* Late move pruning for quiet moves in low depth */
-        if (!isPV && !inChk && quietMove && depth <= 3) {
-          const limit = depth === 1 ? 6 : (depth === 2 ? 10 : 16);
-          if (moveTried >= limit) continue;
+        if (!isPV && !inChk && quietMove && depth <= 4) {
+          const limit = depth === 1 ? 5 : (depth === 2 ? 8 : (depth === 3 ? 14 : 20));
+          if (moveTried >= limit && !(TranspositionTable.encodeMove(m) === ttMoveEnc)) continue;
         }
 
-        /* Node futility pruning for quiet moves */
-        if (!isPV && !inChk && quietMove && depth <= 2) {
-          const futMargin = 120 * depth;
-          if (staticEval + futMargin <= alpha) {
+        /* Node futility pruning for quiet moves - less aggressive margin */
+        if (!isPV && !inChk && quietMove && depth <= 3 && !killerMove) {
+          const futMargin = 80 * depth + 40;
+          if (staticEval + futMargin <= alpha && moveTried > 2) {
             continue;
           }
+        }
+
+        /* SEE pruning: skip losing captures at low depth */
+        if (!isPV && !inChk && depth <= 4 && (m.flags & FLAG_CAPTURE) && !(m.flags & FLAG_PROMO)) {
+          if ((m._see || 0) < -50 * depth) continue;
         }
 
         this.makeMove(m);
@@ -1856,14 +1885,17 @@
           /* PV node: full-window */
           score = -this.negamax(depth-1, -beta, -alpha, ply+1, true);
         } else {
-          /* Adaptive LMR: no reduction for captures, checking, and killer moves */
+          /* Adaptive LMR: no reduction for captures, checking, killer moves, TT moves */
           let reduction = 0;
-          if (!isPV && depth >= 3 && legalIdx >= 3 && !inChk && quietMove && !givesCheck && !killerMove) {
+          const isTTMove = TranspositionTable.encodeMove(m) === ttMoveEnc;
+          if (!isPV && depth >= 3 && legalIdx >= 3 && !inChk && quietMove && !givesCheck && !killerMove && !isTTMove) {
             const dTerm = Math.floor(Math.log2(Math.max(2, depth)));
             const mTerm = Math.floor(Math.log2(legalIdx + 1));
             reduction = Math.max(1, Math.floor((dTerm * mTerm) / 2));
             if (improving) reduction = Math.max(1, reduction - 1);
+            // Extra caution: don't reduce too much, engines blunder when reducing too aggressively
             reduction = Math.min(reduction, depth - 2);
+            reduction = Math.min(reduction, 3); // Hard cap to prevent catastrophic blunders
           }
           const newDepth = depth - 1 - reduction;
 
@@ -2158,21 +2190,23 @@
 
     applyRootBlunderGuard(scoredMoves, depth) {
       if (!scoredMoves || !scoredMoves.length) return;
-      if (depth > 6) {
-        for (const line of scoredMoves) line.pickScore = line.score;
-        return;
-      }
 
       for (const line of scoredMoves) {
         let penalty = 0;
         const m = line.m;
         if (Math.abs(line.score) < MATE - 500) {
           const see = this.see(m);
-          if (see <= -700) penalty += 220;
-          else if (see <= -350) penalty += 90;
+          // Stricter SEE thresholds - catch more potential blunders
+          if (see <= -900) penalty += 400;
+          else if (see <= -500) penalty += 250;
+          else if (see <= -300) penalty += 120;
+          else if (see <= -100) penalty += 40;
 
           const moving = m.promo || m.piece;
-          if ((moving === WQ || moving === BQ) && see < 0) penalty += 140;
+          // Heavy penalty for moving queen into danger
+          if ((moving === WQ || moving === BQ) && see < 0) penalty += 180;
+          // Penalty for moving rook into danger at shallow depth
+          if ((moving === WR || moving === BR) && see <= -300) penalty += 80;
         }
         line.pickScore = line.score - penalty;
       }
@@ -2245,8 +2279,10 @@
       this.maxNodes = strength.nodeCap;
       this.effectiveSkillLevel = strength.skill;
 
-      /* Reset history heuristic and killers each search */
-      this.histTable.fill(0);
+      /* Decay history heuristic instead of full reset - preserves useful ordering knowledge */
+      for (let i = 0; i < this.histTable.length; i++) {
+        this.histTable[i] = (this.histTable[i] >> 1);
+      }
       for (const k of this.killers) { k[0] = 0; k[1] = 0; }
 
       const depthLimit = Math.max(1, Math.min(strength.depthCap, Math.min(64, spec.depth || 64)));
@@ -2292,10 +2328,10 @@
       for (let d = 1; d <= depthLimit; d++) {
         if (this.stop) break;
 
-        /* Aspiration window */
-        let asp   = d > 1 ? 25 : INF;
-        let lo    = d > 1 ? Math.max(-INF, prevScore - asp) : -INF;
-        let hi    = d > 1 ? Math.min( INF, prevScore + asp) : INF;
+        /* Aspiration window - tighter window reduces re-searches, more stable */
+        let asp   = d > 3 ? 20 : INF;
+        let lo    = d > 3 ? Math.max(-INF, prevScore - asp) : -INF;
+        let hi    = d > 3 ? Math.min( INF, prevScore + asp) : INF;
 
         const scored = [];
 
