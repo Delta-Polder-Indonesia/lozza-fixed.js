@@ -131,6 +131,15 @@
     [BP]: 0, [BN]: 1, [BB]: 1, [BR]: 2, [BQ]: 4, [BK]: 0,
   };
   const MAX_PHASE = 24;
+  const MVV_LVA = (() => {
+    const t = Array.from({ length: 7 }, () => new Int16Array(7));
+    for (let victim = 1; victim <= 6; victim++) {
+      for (let attacker = 1; attacker <= 6; attacker++) {
+        t[victim][attacker] = victim * 16 - attacker;
+      }
+    }
+    return t;
+  })();
   const PAWN_PASSED = [0, 0, 0, 0, 0.1, 0.3, 0.7, 1.2, 0];
   const ATT_W = [0, 0.01, 0.42, 0.78, 1.11, 1.52, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
@@ -155,6 +164,100 @@
   const ROOKOPEN_S = 21, ROOKOPEN_E = -3;
   const ROOK_DOUBLED_S = 27, ROOK_DOUBLED_E = -3;
   const QUEEN7TH_S = -75, QUEEN7TH_E = 55;
+
+  // Lightweight internal opening book lines in UCI format.
+const OPENING_BOOK_LINES = [
+    // === OPEN GAMES (1.e4 e5) - ECO C ===
+    // Spanish/Ruy Lopez
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f8e7 f1e1 b7b5 a4b3 d7d6 c2c3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f8e7 f1e1 b7b5 a4b3 d7d6 c2c3 c6a5 b3c2 c7c5 d2d4 d8b6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f8e7 f1e1 b7b5 a4b3 d7d6 c2c3 c6a5 b3c2 c7c5 d2d4 d8b6 b1d2',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7a6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1 c8d7',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1 c8d7 f1e2',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1 c8d7 f1e2 d7e6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1 c8d7 f1e2 d7e6 e2d3',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1 c8d7 f1e2 d7e6 e2d3 e6e5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1 c8d7 f1e2 d7e6 e2d3 e6e5 d3c4',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1 c8d7 f1e2 d7e6 e2d3 e6e5 d3c4 e5f6',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1 c8d7 f1e2 d7e6 e2d3 e6e5 d3c4 e5f6 c4d5',
+    'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c6a5 b3a2 d5d4 f3d4 c8b7 b1c3 e4c3 b2c3 d8d5 c1e3 e7g5 d1d5 b7d5 c3c4 b5c4 a2c4 a5c4 e3c5 e8c8 c5f8 d8f8 a1c1 f8e8 f1e1 e8e6 c4e6 f7e6 d4f3 h7h6 h2h4 g5f4 e1e4 f4e5 f3e5 c7c6 e5f3 d6d5 f3d4 c6d5 c4d5 e6d5 d4f3 g7g5 g2g3 g5h4 g3h4 f8g7 f3e5 g7e5 e4e5 h6h5 c1c7 h5g4 c7g7 g8f8 g7h7 f8e8 h7h8 e8d7 h8a8 d7c7 a8a7 c7b6 e5e6 b6a7 e6f6 a7b6 f6e6 b6c7 e6e7 c7d7 e7f7 d7d8 f7f8 d8c8 f8c8 b6c8 g1f1 c8d7 f1e2 d7e6 e2d3 e6e5 d3c4 e5f6 c4d5 f6f5',
+  ];
 
   /* ────────────────────────────────────────────────────────── */
 
@@ -220,12 +323,29 @@
 
     store(hash, depth, score, flag, bestEncoded) {
       const i = this._idx(hash);
-      // Always-replace: simple, effective at low memory.
-      this.data[i + TT_HASH]  = (hash >>> 0) | 0;
+      const key = (hash >>> 0) | 0;
+      const oldKey = this.data[i + TT_HASH];
+      const oldDepth = this.data[i + TT_DEPTH];
+      const oldFlag = this.data[i + TT_FLAG];
+
+      // Depth-preferred replacement: never overwrite a deeper entry.
+      if (oldKey !== 0 && oldDepth > depth) {
+        return;
+      }
+
+      // If same depth, keep exact entries over bounds.
+      if (oldKey !== 0 && oldDepth === depth) {
+        if (oldFlag === 0 && flag !== 0) return;
+      }
+
+      // Preserve previous best move when a bound update has no move.
+      const best = bestEncoded ? (bestEncoded | 0) : (oldKey === key ? this.data[i + TT_BEST] : 0);
+
+      this.data[i + TT_HASH]  = key;
       this.data[i + TT_DEPTH] = depth;
       this.data[i + TT_SCORE] = score;
       this.data[i + TT_FLAG]  = flag;
-      this.data[i + TT_BEST]  = bestEncoded | 0;
+      this.data[i + TT_BEST]  = best;
     }
 
     hashfull() {
@@ -287,6 +407,8 @@
         Hash: DEFAULT_HASH_MB,
         MultiPV: 1,
         Ponder: false,
+        OwnBook: true,
+        BookMaxPly: 16,
         MoveOverhead: 0,
         UCI_AnalyseMode: false,
         UCI_ShowWDL: false,
@@ -325,15 +447,22 @@
       /* History heuristic [piece][to] */
       this.histTable = new Int32Array(15 * 128);
 
+      /* Static eval trace for improving/non-improving decisions */
+      this.evalTrace = new Int32Array(256);
+
       /* Zobrist */
       this.Z = this._initZobrist();
 
       /* Transposition table */
       this.tt = new TranspositionTable(this.options.Hash);
 
+      /* Internal opening book */
+      this.book = new Map();
+
       this.bestMove  = null;
 
       this.setFen(START_FEN);
+      this._buildOpeningBook();
     }
 
     /* ── Zobrist ── */
@@ -858,6 +987,75 @@
       return fmt === 'san' ? this.moveToSan(m) : this.moveToUci(m);
     }
 
+    _bookKey() {
+      const fen = this.getFen().split(' ');
+      return `${fen[0]} ${fen[1]} ${fen[2]} ${fen[3]}`;
+    }
+
+    _addBookEntry(key, uci, weight = 1) {
+      let entries = this.book.get(key);
+      if (!entries) {
+        entries = [];
+        this.book.set(key, entries);
+      }
+      const found = entries.find((e) => e.uci === uci);
+      if (found) found.w += weight;
+      else entries.push({ uci, w: weight });
+    }
+
+    _buildOpeningBook() {
+      const savedFen = this.getFen();
+      this.book.clear();
+
+      for (const line of OPENING_BOOK_LINES) {
+        this.setFen(START_FEN);
+        const moves = line.trim().split(/\s+/).filter(Boolean);
+        for (let ply = 0; ply < moves.length; ply++) {
+          const uci = moves[ply];
+          const key = this._bookKey();
+          this._addBookEntry(key, uci, Math.max(1, moves.length - ply));
+
+          const m = this.findMoveByUci(uci);
+          if (!m) break;
+          this.makeMove(m);
+        }
+      }
+
+      this.setFen(savedFen);
+    }
+
+    pickBookMove() {
+      if (!this.options.OwnBook) return null;
+      if (this.history.length > this.options.BookMaxPly) return null;
+
+      const key = this._bookKey();
+      const entries = this.book.get(key);
+      if (!entries || !entries.length) return null;
+
+      const legal = this.genMoves(false);
+      const legalByUci = new Map();
+      for (const m of legal) legalByUci.set(this.moveToUci(m), m);
+
+      const usable = [];
+      let total = 0;
+      for (const e of entries) {
+        const mv = legalByUci.get(e.uci);
+        if (!mv) continue;
+        const w = Math.max(1, e.w | 0);
+        usable.push({ move: mv, w });
+        total += w;
+      }
+      if (!usable.length) return null;
+
+      // Weighted random: keeps variety without sacrificing mainline preference.
+      let r = Math.floor(Math.random() * total);
+      for (const u of usable) {
+        r -= u.w;
+        if (r < 0) return u.move;
+      }
+      return usable[0].move;
+    }
+
     findMoveByUci(uci) {
       const moves = this.genMoves(false);
       for (const m of moves) {
@@ -895,23 +1093,7 @@
       return 0;
     }
 
-    _pawnStructure() {
-      const whiteFiles = new Int8Array(8);
-      const blackFiles = new Int8Array(8);
-      const wpSquares = [];
-      const bpSquares = [];
-
-      for (let sq = 0; sq < 128; sq++) {
-        if (!onBoard(sq)) { sq += 7; continue; }
-        const p = this.board[sq];
-        if (p === WP) {
-          whiteFiles[sq & 7]++;
-          wpSquares.push(sq);
-        } else if (p === BP) {
-          blackFiles[sq & 7]++;
-          bpSquares.push(sq);
-        }
-      }
+    _pawnStructure(whiteFiles, blackFiles, wpSquares, bpSquares) {
 
       let mg = 0;
       let eg = 0;
@@ -930,13 +1112,15 @@
         }
       }
 
+      const board = this.board;
+
       for (const sq of wpSquares) {
         const f = sq & 7;
         const r = sq >> 4;
         let passed = true;
         for (let rr = r + 1; rr < 8 && passed; rr++) {
           for (let ff = Math.max(0, f - 1); ff <= Math.min(7, f + 1); ff++) {
-            if (this.board[(rr << 4) | ff] === BP) { passed = false; break; }
+            if (board[(rr << 4) | ff] === BP) { passed = false; break; }
           }
         }
         if (passed) {
@@ -944,7 +1128,7 @@
           mg += Math.round(25 + 8 * adv);
           eg += Math.round(35 + 78 * adv);
         }
-        if ((onBoard(sq - 15) && this.board[sq - 15] === WP) || (onBoard(sq - 17) && this.board[sq - 17] === WP)) {
+        if ((onBoard(sq - 15) && board[sq - 15] === WP) || (onBoard(sq - 17) && board[sq - 17] === WP)) {
           mg += 8;
           eg += 8;
         }
@@ -956,7 +1140,7 @@
         let passed = true;
         for (let rr = r - 1; rr >= 0 && passed; rr--) {
           for (let ff = Math.max(0, f - 1); ff <= Math.min(7, f + 1); ff++) {
-            if (this.board[(rr << 4) | ff] === WP) { passed = false; break; }
+            if (board[(rr << 4) | ff] === WP) { passed = false; break; }
           }
         }
         if (passed) {
@@ -964,7 +1148,7 @@
           mg -= Math.round(25 + 8 * adv);
           eg -= Math.round(35 + 78 * adv);
         }
-        if ((onBoard(sq + 15) && this.board[sq + 15] === BP) || (onBoard(sq + 17) && this.board[sq + 17] === BP)) {
+        if ((onBoard(sq + 15) && board[sq + 15] === BP) || (onBoard(sq + 17) && board[sq + 17] === BP)) {
           mg -= 8;
           eg -= 8;
         }
@@ -1118,14 +1302,36 @@
       return { mg, eg };
     }
 
-    _kingSafetyEval() {
+    _kingSafetyEval(whiteFiles, blackFiles) {
       const board = this.board;
-      const evalSide = (kingSq, us) => {
+      const zoneSquares = (kingSq, us) => {
+        const z = [];
+        const push = us === WHITE ? 16 : -16;
+        z.push(kingSq);
+        for (const d of KING_DIR) {
+          const to = kingSq + d;
+          if (onBoard(to)) z.push(to);
+        }
+        const front = kingSq + push;
+        if (onBoard(front)) {
+          z.push(front);
+          if (onBoard(front - 1)) z.push(front - 1);
+          if (onBoard(front + 1)) z.push(front + 1);
+        }
+        return z;
+      };
+
+      const evalSide = (kingSq, us, ownFiles, oppFiles) => {
         const f = kingSq & 7;
         const r = kingSq >> 4;
+        const ownPawn = us === WHITE ? WP : BP;
+        const oppColor = opponent(us);
+        const forward = us === WHITE ? 1 : -1;
+
         let shelter = 0;
         let storm = 0;
-        const forward = us === WHITE ? 1 : -1;
+
+        // Pawn shield and storm in front of king.
         for (let df = -1; df <= 1; df++) {
           const ff = f + df;
           if (ff < 0 || ff > 7) continue;
@@ -1134,21 +1340,38 @@
             if (rr < 0 || rr > 7) continue;
             const sq = (rr << 4) | ff;
             const p = board[sq];
-            if (us === WHITE) {
-              if (p === WP) shelter += 11 - step * 2;
-              if (p === BP) storm += 8 - step;
-            } else {
-              if (p === BP) shelter += 11 - step * 2;
-              if (p === WP) storm += 8 - step;
-            }
+            if (p === ownPawn) shelter += 12 - step * 3;
+            else if (p !== EMPTY) storm += 8 - step;
           }
         }
-        return shelter - storm;
+
+        // Penalize open / semi-open files around king.
+        let openPenalty = 0;
+        for (let df = -1; df <= 1; df++) {
+          const ff = f + df;
+          if (ff < 0 || ff > 7) continue;
+          if (ownFiles[ff] === 0) openPenalty += 8;
+          if (ownFiles[ff] === 0 && oppFiles[ff] === 0) openPenalty += 4;
+        }
+
+        // Count enemy attacks near king as danger metric.
+        const zone = zoneSquares(kingSq, us);
+        let attackCount = 0;
+        for (const sq of zone) {
+          if (this.isAttacked(sq, oppColor)) attackCount++;
+        }
+
+        // Bonus when king is clearly safe.
+        const safeBonus = shelter >= 16 && attackCount <= 2 ? 10 : 0;
+
+        const mg = (shelter * 5) - (storm * 4) - openPenalty - (attackCount * 7) + safeBonus;
+        const eg = (shelter * 2) - (storm * 2) - Math.floor(openPenalty / 2) - (attackCount * 3);
+        return { mg, eg };
       };
 
-      const w = evalSide(this.kingPos[WHITE], WHITE);
-      const b = evalSide(this.kingPos[BLACK], BLACK);
-      return { mg: (w - b) * 6, eg: (w - b) * 2 };
+      const w = evalSide(this.kingPos[WHITE], WHITE, whiteFiles, blackFiles);
+      const b = evalSide(this.kingPos[BLACK], BLACK, blackFiles, whiteFiles);
+      return { mg: w.mg - b.mg, eg: w.eg - b.eg };
     }
 
     evaluate() {
@@ -1158,6 +1381,10 @@
       let phase = 0;
       let whiteBishops = 0;
       let blackBishops = 0;
+      const whiteFiles = new Int8Array(8);
+      const blackFiles = new Int8Array(8);
+      const wpSquares = [];
+      const bpSquares = [];
       const board = this.board;
       for (let sq = 0; sq < 128; sq++) {
         if (!onBoard(sq)) { sq += 7; continue; }
@@ -1173,10 +1400,18 @@
           mgScore += mat + pstMg;
           egScore += mat + pstEg;
           if (p === WB) whiteBishops++;
+          if (p === WP) {
+            whiteFiles[sq & 7]++;
+            wpSquares.push(sq);
+          }
         } else {
           mgScore -= mat + pstMg;
           egScore -= mat + pstEg;
           if (p === BB) blackBishops++;
+          if (p === BP) {
+            blackFiles[sq & 7]++;
+            bpSquares.push(sq);
+          }
         }
 
         phase += PHASE_WEIGHT[p] || 0;
@@ -1185,7 +1420,7 @@
       if (whiteBishops >= 2) { mgScore += TWOBISHOPS_S; egScore += TWOBISHOPS_E; }
       if (blackBishops >= 2) { mgScore -= TWOBISHOPS_S; egScore -= TWOBISHOPS_E; }
 
-      const pawnStruct = this._pawnStructure();
+      const pawnStruct = this._pawnStructure(whiteFiles, blackFiles, wpSquares, bpSquares);
       mgScore += pawnStruct.mg;
       egScore += pawnStruct.eg;
 
@@ -1193,7 +1428,7 @@
       mgScore += activity.mg;
       egScore += activity.eg;
 
-      const kingSafety = this._kingSafetyEval();
+      const kingSafety = this._kingSafetyEval(pawnStruct.whiteFiles, pawnStruct.blackFiles);
       mgScore += kingSafety.mg;
       egScore += kingSafety.eg;
 
@@ -1209,30 +1444,171 @@
       return this.side === WHITE ? score : -score;
     }
 
+    _attacksSquareOnOcc(from, to, piece, occ) {
+      const type = piece & 7;
+      if (type === 1) {
+        if (isWhite(piece)) return from + 15 === to || from + 17 === to;
+        return from - 15 === to || from - 17 === to;
+      }
+      if (type === 2) {
+        for (const d of KNIGHT_DIR) {
+          if (from + d === to) return true;
+        }
+        return false;
+      }
+      if (type === 3 || type === 5) {
+        for (const d of BISHOP_DIR) {
+          let sq = from + d;
+          while (onBoard(sq)) {
+            if (sq === to) return true;
+            if (occ[sq] !== EMPTY) break;
+            sq += d;
+          }
+        }
+        if (type === 3) return false;
+      }
+      if (type === 4 || type === 5) {
+        for (const d of ROOK_DIR) {
+          let sq = from + d;
+          while (onBoard(sq)) {
+            if (sq === to) return true;
+            if (occ[sq] !== EMPTY) break;
+            sq += d;
+          }
+        }
+        if (type === 4) return false;
+      }
+      if (type === 6) {
+        for (const d of KING_DIR) {
+          if (from + d === to) return true;
+        }
+      }
+      return false;
+    }
+
+    _leastValuableAttacker(to, side, occ) {
+      let bestSq = -1;
+      let bestPiece = EMPTY;
+      let bestVal = INF;
+      for (let sq = 0; sq < 128; sq++) {
+        if (!onBoard(sq)) { sq += 7; continue; }
+        const p = occ[sq];
+        if (!p) continue;
+        if (colorOf(p) !== side) continue;
+        if (!this._attacksSquareOnOcc(sq, to, p, occ)) continue;
+        const v = PIECE_VALUE[p] || 0;
+        if (v < bestVal) {
+          bestVal = v;
+          bestSq = sq;
+          bestPiece = p;
+        }
+      }
+      if (bestSq === -1) return null;
+      return { sq: bestSq, piece: bestPiece };
+    }
+
+    see(m) {
+      if (!(m.flags & FLAG_CAPTURE)) return 0;
+
+      const occ = new Uint8Array(128);
+      occ.set(this.board);
+
+      const from = m.from;
+      const to = m.to;
+      const movedPiece = m.piece;
+      const placedPiece = m.promo || movedPiece;
+
+      let capturedValue = PIECE_VALUE[m.capture] || 0;
+      if (m.flags & FLAG_EP) capturedValue = PIECE_VALUE[isWhite(m.piece) ? BP : WP];
+
+      const gain = new Int16Array(32);
+      gain[0] = capturedValue;
+
+      occ[from] = EMPTY;
+      if (m.flags & FLAG_EP) {
+        const capSq = isWhite(m.piece) ? to - 16 : to + 16;
+        occ[capSq] = EMPTY;
+      }
+      occ[to] = placedPiece;
+
+      let depth = 0;
+      let side = opponent(this.side);
+      while (true) {
+        const att = this._leastValuableAttacker(to, side, occ);
+        if (!att) break;
+        depth++;
+        gain[depth] = (PIECE_VALUE[att.piece] || 0) - gain[depth - 1];
+        occ[att.sq] = EMPTY;
+        side = opponent(side);
+      }
+
+      while (--depth > -1) {
+        gain[depth] = -Math.max(-gain[depth], gain[depth + 1]);
+      }
+      return gain[0];
+    }
+
     /* ── Move ordering ── */
     _moveScore(m, ttBestEnc, ply) {
       const enc = TranspositionTable.encodeMove(m);
       if (enc === ttBestEnc) return 2000000;
       if (m.flags & FLAG_CAPTURE) {
-        const gain = (PIECE_VALUE[m.capture]||0) - (PIECE_VALUE[m.piece]||0);
-        return 1000000 + gain;
+        const victim = (m.capture & 7) || 0;
+        const attacker = (m.piece & 7) || 0;
+        const mvv = MVV_LVA[victim][attacker] || 0;
+        const see = m._see || 0;
+        if (see < 0) return 250000 + mvv + see;
+        return 1500000 + mvv + Math.min(200, see);
       }
-      if (m.flags & FLAG_PROMO) return 900000;
+      if (m.flags & FLAG_PROMO) return 1100000 + ((m.promo & 7) || 0);
       const killers = this.killers[ply] || [];
       if (enc === killers[0]) return 800000;
       if (enc === killers[1]) return 700000;
       return this.histTable[(m.piece << 7) | m.to] | 0;
     }
 
-    orderMoves(moves, ttBestEnc, ply) {
-      for (const m of moves) m._score = this._moveScore(m, ttBestEnc, ply);
-      moves.sort((a, b) => b._score - a._score);
+    scoreMoves(moves, ttBestEnc, ply) {
+      for (const m of moves) {
+        if (m.flags & FLAG_CAPTURE) {
+          const victimVal = PIECE_VALUE[m.capture] || 0;
+          const attackerVal = PIECE_VALUE[m.piece] || 0;
+          // Fast path: obvious favorable captures skip expensive SEE.
+          m._see = victimVal >= attackerVal ? (victimVal - attackerVal) : this.see(m);
+        } else {
+          m._see = 0;
+        }
+        m._score = this._moveScore(m, ttBestEnc, ply);
+      }
+    }
+
+    pickNextMove(moves, startIdx) {
+      let bestIdx = startIdx;
+      let bestScore = moves[startIdx]._score;
+      for (let i = startIdx + 1; i < moves.length; i++) {
+        const s = moves[i]._score;
+        if (s > bestScore) {
+          bestScore = s;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx !== startIdx) {
+        const tmp = moves[startIdx];
+        moves[startIdx] = moves[bestIdx];
+        moves[bestIdx] = tmp;
+      }
+      return moves[startIdx];
     }
 
     storeKiller(m, ply) {
       const enc = TranspositionTable.encodeMove(m);
       const k   = this.killers[ply];
       if (enc !== k[0]) { k[1] = k[0]; k[0] = enc; }
+    }
+
+    isKillerMove(m, ply) {
+      const enc = TranspositionTable.encodeMove(m);
+      const k = this.killers[ply] || [0, 0];
+      return enc === k[0] || enc === k[1];
     }
 
     updateHistory(m, depth) {
@@ -1268,8 +1644,9 @@
         const evasions = this.genMoves(false);
         if (evasions.length === 0) return -MATE + ply;
         const ttBest = this.tt.getBestMove(this.hash);
-        this.orderMoves(evasions, ttBest, ply);
-        for (const m of evasions) {
+        this.scoreMoves(evasions, ttBest, ply);
+        for (let i = 0; i < evasions.length; i++) {
+          const m = this.pickNextMove(evasions, i);
           this.makeMove(m);
           const score = -this.qsearch(-beta, -alpha, ply + 1);
           this.undoMove();
@@ -1286,12 +1663,14 @@
 
       const moves = this.genMoves(true);
       const ttBest = this.tt.getBestMove(this.hash);
-      this.orderMoves(moves, ttBest, ply);
+      this.scoreMoves(moves, ttBest, ply);
 
-      for (const m of moves) {
+      for (let i = 0; i < moves.length; i++) {
+        const m = this.pickNextMove(moves, i);
         /* Delta pruning */
         const gain = (PIECE_VALUE[m.capture]||0) + (m.promo ? PIECE_VALUE[m.promo]||0 : 0);
         if (stand + gain + 200 < alpha) continue;
+        if ((m.flags & FLAG_CAPTURE) && !(m.flags & FLAG_PROMO) && (m._see || 0) < 0) continue;
 
         this.makeMove(m);
         const score = -this.qsearch(-beta, -alpha, ply+1);
@@ -1335,6 +1714,8 @@
 
       let staticEval = 0;
       if (!inChk) staticEval = this.evaluate();
+      this.evalTrace[ply] = inChk ? this.evalTrace[Math.max(0, ply - 2)] : staticEval;
+      const improving = !inChk && ply >= 2 && staticEval > this.evalTrace[ply - 2];
 
       /* Reverse futility pruning */
       if (!isPV && !inChk && depth <= 3) {
@@ -1364,7 +1745,7 @@
       const moves = this.genMoves(false);
       if (moves.length === 0) return inChk ? -MATE + ply : 0;
 
-      this.orderMoves(moves, ttBestEnc, ply);
+      this.scoreMoves(moves, ttBestEnc, ply);
 
       const alpha0 = alpha;
       let bestScore = -INF;
@@ -1372,9 +1753,11 @@
       let legalIdx  = 0;
       let moveTried = 0;
 
-      for (const m of moves) {
+      for (let i = 0; i < moves.length; i++) {
+        const m = this.pickNextMove(moves, i);
         moveTried++;
         const quietMove = (m.flags & (FLAG_CAPTURE | FLAG_PROMO | FLAG_EP)) === 0;
+        const killerMove = quietMove && this.isKillerMove(m, ply);
 
         /* Late move pruning for quiet moves in low depth */
         if (!isPV && !inChk && quietMove && depth <= 3) {
@@ -1391,26 +1774,29 @@
         }
 
         this.makeMove(m);
+        const givesCheck = this.inCheck(this.side);
         let score;
 
         if (legalIdx === 0) {
           /* PV node: full-window */
           score = -this.negamax(depth-1, -beta, -alpha, ply+1, true);
         } else {
-          /* LMR */
-          let newDepth = depth - 1;
-          let doLMR    = false;
-          if (depth >= 3 && legalIdx >= 3 && !inChk &&
-              !(m.flags & (FLAG_CAPTURE|FLAG_PROMO|FLAG_EP))) {
-            doLMR    = true;
-            newDepth = Math.max(1, depth - 1 - Math.floor(Math.sqrt(legalIdx)));
+          /* Adaptive LMR: no reduction for captures, checking, and killer moves */
+          let reduction = 0;
+          if (!isPV && depth >= 3 && legalIdx >= 3 && !inChk && quietMove && !givesCheck && !killerMove) {
+            const dTerm = Math.floor(Math.log2(Math.max(2, depth)));
+            const mTerm = Math.floor(Math.log2(legalIdx + 1));
+            reduction = Math.max(1, Math.floor((dTerm * mTerm) / 2));
+            if (improving) reduction = Math.max(1, reduction - 1);
+            reduction = Math.min(reduction, depth - 2);
           }
+          const newDepth = depth - 1 - reduction;
 
           /* Zero-window search */
           score = -this.negamax(newDepth, -alpha-1, -alpha, ply+1, true);
 
           /* Re-search if LMR failed high */
-          if (!this.stop && doLMR && score > alpha) {
+          if (!this.stop && reduction > 0 && score > alpha) {
             score = -this.negamax(depth-1, -alpha-1, -alpha, ply+1, true);
           }
 
@@ -1568,6 +1954,7 @@
       this.startTime = Date.now();
       this.moveTime  = this.calcMoveTime(spec);
       this.maxNodes  = Math.max(0, spec.maxNodes | 0);
+      this.evalTrace.fill(0);
 
       /* Reset history heuristic and killers each search */
       this.histTable.fill(0);
@@ -1587,6 +1974,27 @@
         return;
       }
 
+      // If we are still in known opening territory, play instantly from book.
+      if ((!spec.searchMoves || spec.searchMoves.length === 0) && !this.options.UCI_AnalyseMode) {
+        const bookMove = this.pickBookMove();
+        if (bookMove) {
+          const bestMoveUci = this.moveToUci(bookMove);
+          let ponder = '';
+          this.makeMove(bookMove);
+          const p = this.pickBookMove();
+          if (p) ponder = this.moveToUci(p);
+          this.undoMove();
+
+          this.send('info string book', bestMoveUci);
+          if (ponder && (this.options.Ponder || spec.ponder)) {
+            this.send('bestmove', bestMoveUci, 'ponder', ponder);
+          } else {
+            this.send('bestmove', bestMoveUci);
+          }
+          return;
+        }
+      }
+
       let bestMove     = rootMoves[0];
       let bestScore    = -INF;
       let prevScore    = -INF;
@@ -1602,18 +2010,24 @@
         const scored = [];
 
         /* ---- aspiration loop ---- */
+        let aspTries = 0;
         aspirationLoop:
         while (true) {
+          if (++aspTries > 12) {
+            // Safety guard to avoid pathological re-search loops.
+            lo = -INF;
+            hi = INF;
+          }
           scored.length = 0;
           let alpha = lo;
           let bestInWindow = -INF;
 
           /* Order root moves: best move first */
           const ttEnc = this.tt.getBestMove(this.hash);
-          this.orderMoves(rootMoves, ttEnc, 0);
+          this.scoreMoves(rootMoves, ttEnc, 0);
 
-          let moveIdx = 0;
-          for (const m of rootMoves) {
+          for (let moveIdx = 0; moveIdx < rootMoves.length; moveIdx++) {
+            const m = this.pickNextMove(rootMoves, moveIdx);
             if (this.stop) break;
 
             this.makeMove(m);
@@ -1644,7 +2058,6 @@
                 continue aspirationLoop;
               }
             }
-            moveIdx++;
           }
 
           if (scored.length && bestInWindow <= lo && lo > -INF + 1) {
@@ -1787,6 +2200,14 @@
         this.options.Ponder = BOOL_RE.test(value.trim());
         return;
       }
+      if (name === 'OwnBook') {
+        this.options.OwnBook = BOOL_RE.test(value.trim());
+        return;
+      }
+      if (name === 'BookMaxPly') {
+        this.options.BookMaxPly = Math.max(0, Math.min(40, +value || 0));
+        return;
+      }
       if (name === 'Move Overhead') {
         this.options.MoveOverhead = Math.max(0, Math.min(10000, +value || 0));
         return;
@@ -1845,6 +2266,8 @@
           this.send('option name MultiPV type spin default 1 min 1 max 12');
           this.send('option name Threads type spin default 1 min 1 max 1');
           this.send('option name Ponder type check default false');
+          this.send('option name OwnBook type check default true');
+          this.send('option name BookMaxPly type spin default 16 min 0 max 40');
           this.send('option name Move Overhead type spin default 0 min 0 max 10000');
           this.send('option name UCI_AnalyseMode type check default false');
           this.send('option name UCI_ShowWDL type check default false');
