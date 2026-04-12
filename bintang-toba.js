@@ -58,20 +58,6 @@ function clamp(x, lo, hi) {
 }
 
 //}}}
-//{{{  ttSizeFromHash
-
-function ttSizeFromHash(hashMB) {
-
-  var bytes = clamp(hashMB, MIN_HASH_MB, MAX_HASH_MB) * 1024 * 1024;
-  var size = 1;
-
-  while ((size << 1) * TT_ENTRY_BYTES <= bytes)
-    size <<= 1;
-
-  return size;
-}
-
-//}}}
 //{{{  wbmap
 //
 // Removed on release.
@@ -112,10 +98,9 @@ var PIECE_MASK = 0x7;
 var COLOR_MASK = 0x8;
 
 var VALUE_PAWN = 100;             // safe - tuning root
-var TT_ENTRY_BYTES = 16;
-var DEFAULT_HASH_MB = 64;
-var MIN_HASH_MB = 1;
-var MAX_HASH_MB = 256;
+
+const TTSIZE = 1 << 24;
+const TTMASK = TTSIZE - 1;
 
 const PTTSIZE = 1 << 14;
 const PTTMASK = PTTSIZE - 1;
@@ -1695,16 +1680,13 @@ lozChess.prototype.go = function() {
   if (spec.depth <= 0)
     spec.depth = MAX_PLY;
   
-  if (spec.analyseMode)
-    this.stats.moveTime = 0;
-  
-  else if (spec.moveTime > 0)
+  if (spec.moveTime > 0)
     this.stats.moveTime = Math.max(1, spec.moveTime - moveOverhead);
   
   if (spec.maxNodes > 0)
     this.stats.maxNodes = spec.maxNodes;
   
-  if (!spec.analyseMode && spec.moveTime == 0) {
+  if (spec.moveTime == 0) {
   
     if (spec.movesToGo > 0)
       var movesToGo = spec.movesToGo + 2;
@@ -1763,15 +1745,10 @@ lozChess.prototype.go = function() {
   else
     bestMoveStr = '0000';
 
-  var ponderMoveStr = this.getPonderMove(this.stats.rootMoves);
-
   if (lozzaHost == HOST_WEB && this.stats.bestMove)
     board.makeMove(this.rootNode,this.stats.bestMove);
 
-  if (ponderMoveStr && this.uci.getOption('Ponder', false))
-    this.uci.send('bestmove',bestMoveStr,'ponder',ponderMoveStr);
-  else
-    this.uci.send('bestmove',bestMoveStr);
+  this.uci.send('bestmove',bestMoveStr);
 }
 
 //}}}
@@ -1833,15 +1810,6 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
     
       continue;
     }
-
-    if (this.stats.searchMoves && this.stats.searchMoves.length) {
-      var rootMoveStr = board.formatMove(move, UCI_FMT);
-      if (!this.stats.searchMoves[rootMoveStr]) {
-        board.unmakeMove(node,move);
-        node.uncache();
-        continue;
-      }
-    }
     
     //}}}
 
@@ -1892,9 +1860,8 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
       return;
     }
 
-    var pvStr = board.getPVStr(node,move,depth,board.mvFmt).trim();
-    var pvUciStr = board.getPVStr(node,move,depth,UCI_FMT).trim();
-    rootMoves.push(this.makeRootMove(move, score, depth, pvStr, pvUciStr));
+    var pvStr = board.getPVStr(node,move,depth).trim();
+    rootMoves.push(this.makeRootMove(move, score, depth, pvStr));
 
     if (score > bestScore) {
       if (score > alpha) {
@@ -1937,22 +1904,18 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
 //}}}
 //{{{  .makeRootMove
 
-lozChess.prototype.makeRootMove = function (move, score, depth, pvStr, pvUciStr) {
+lozChess.prototype.makeRootMove = function (move, score, depth, pvStr) {
 
   var scoreInfo = this.describeScore(score);
 
   if (!pvStr)
     pvStr = this.board.formatMove(move, this.board.mvFmt);
 
-  if (!pvUciStr)
-    pvUciStr = this.board.formatMove(move, UCI_FMT);
-
   return {
     move: move,
     score: score,
     depth: depth,
     pv: pvStr,
-    pvUci: pvUciStr,
     units: scoreInfo.units,
     uciScore: scoreInfo.value,
     wdl: this.scoreToWDL(score)
@@ -2082,23 +2045,7 @@ lozChess.prototype.sendRootInfo = function (rootMoves, depth) {
   if (showACPL)
     uci.send('info string acpl', this.estimateACPL(rootMoves), 'depth', depth);
 
-  uci.send('info hashfull',myround(1000*this.board.hashUsed/this.board.ttSize));
-}
-
-//}}}
-//{{{  .getPonderMove
-
-lozChess.prototype.getPonderMove = function (rootMoves) {
-
-  if (!rootMoves || !rootMoves.length || !rootMoves[0].pvUci)
-    return '';
-
-  var pv = rootMoves[0].pvUci.trim().split(/\s+/);
-
-  if (pv.length < 2)
-    return '';
-
-  return pv[1];
+  uci.send('info hashfull',myround(1000*this.board.hashUsed/TTSIZE));
 }
 
 //}}}
@@ -2665,14 +2612,17 @@ function lozBoard () {
   this.hiHash       = 0;
   this.ploHash      = 0;
   this.phiHash      = 0;
-  this.hashMB       = DEFAULT_HASH_MB;
-  this.ttSize       = 0;
-  this.ttMask       = 0;
 
   // use separate typed arrays to save space.  optimiser probably has a go anyway but better
   // to be explicit at the expense of some conversion.  total width is 16 bytes.
 
-  this.allocTables(this.hashMB);
+  this.ttLo      = new Int32Array(TTSIZE);
+  this.ttHi      = new Int32Array(TTSIZE);
+  this.ttType    = new Uint8Array(TTSIZE);
+  this.ttDepth   = new Int8Array(TTSIZE);   // allow -ve depths but currently not used for q.
+  this.ttMove    = new Uint32Array(TTSIZE); // see constants for structure.
+  this.ttEval    = new Int16Array(TTSIZE);
+  this.ttScore   = new Int16Array(TTSIZE);
 
   this.pttLo     = new Int32Array(PTTSIZE);
   this.pttHi     = new Int32Array(PTTSIZE);
@@ -2684,6 +2634,7 @@ function lozBoard () {
   this.pttwMost  = new Uint32Array(PTTSIZE);
   this.pttbMost  = new Uint32Array(PTTSIZE);
 
+  this.ttType.fill(TT_EMPTY);
   this.pttFlags.fill(TT_EMPTY);
 
   this.turn = 0;
@@ -2818,41 +2769,6 @@ lozBoard.prototype.init = function () {
     this.mvFmt = SAN_FMT;
   else
     this.mvFmt = UCI_FMT;
-}
-
-//}}}
-//{{{  .allocTables
-
-lozBoard.prototype.allocTables = function (hashMB) {
-
-  this.hashMB = clamp(hashMB || DEFAULT_HASH_MB, MIN_HASH_MB, MAX_HASH_MB);
-  this.ttSize = ttSizeFromHash(this.hashMB);
-  this.ttMask = this.ttSize - 1;
-
-  this.ttLo      = new Int32Array(this.ttSize);
-  this.ttHi      = new Int32Array(this.ttSize);
-  this.ttType    = new Uint8Array(this.ttSize);
-  this.ttDepth   = new Int8Array(this.ttSize);
-  this.ttMove    = new Uint32Array(this.ttSize);
-  this.ttEval    = new Int16Array(this.ttSize);
-  this.ttScore   = new Int16Array(this.ttSize);
-
-  this.ttType.fill(TT_EMPTY);
-  this.hashUsed = 0;
-}
-
-//}}}
-//{{{  .setHashSize
-
-lozBoard.prototype.setHashSize = function (hashMB) {
-
-  var nextHashMB = clamp(hashMB || DEFAULT_HASH_MB, MIN_HASH_MB, MAX_HASH_MB);
-
-  if (nextHashMB == this.hashMB)
-    return;
-
-  this.allocTables(nextHashMB);
-  this.pttFlags.fill(TT_EMPTY);
 }
 
 //}}}
@@ -6192,7 +6108,7 @@ lozBoard.prototype.rand32 = function () {
 
 lozBoard.prototype.ttPut = function (type,depth,score,move,ply,alpha,beta,eval) {
 
-  var idx = this.loHash & this.ttMask;
+  var idx = this.loHash & TTMASK;
 
   //if (this.ttType[idx] == TT_EXACT && this.loHash == this.ttLo[idx] && this.hiHash == this.ttHi[idx] && this.ttDepth[idx] > depth && this.ttScore[idx] > alpha && this.ttScore[idx] < beta) {
     //return;
@@ -6221,7 +6137,7 @@ lozBoard.prototype.ttPut = function (type,depth,score,move,ply,alpha,beta,eval) 
 
 lozBoard.prototype.ttGet = function (node, depth, alpha, beta) {
 
-  var idx   = this.loHash & this.ttMask;
+  var idx   = this.loHash & TTMASK;
   var type  = this.ttType[idx];
 
   node.hashMove = 0;
@@ -6278,7 +6194,7 @@ lozBoard.prototype.ttGet = function (node, depth, alpha, beta) {
 
 lozBoard.prototype.ttGetMove = function (node) {
 
-  var idx = this.loHash & this.ttMask;
+  var idx = this.loHash & TTMASK;
 
   if (this.ttType[idx] != TT_EMPTY && this.ttLo[idx] == this.loHash && this.ttHi[idx] == this.hiHash)
     return this.ttMove[idx];
@@ -6290,6 +6206,12 @@ lozBoard.prototype.ttGetMove = function (node) {
 //{{{  .ttInit
 
 lozBoard.prototype.ttInit = function () {
+
+  this.loHash = 0;
+  this.hiHash = 0;
+
+  this.ploHash = 0;
+  this.phiHash = 0;
 
   this.ttType.fill(TT_EMPTY);
   this.pttFlags.fill(TT_EMPTY);
@@ -6458,7 +6380,7 @@ lozBoard.prototype.playMove = function (moveStr) {
 //}}}
 //{{{  .getPVStr
 
-lozBoard.prototype.getPVStr = function(node,move,depth,fmt) {
+lozBoard.prototype.getPVStr = function(node,move,depth) {
 
   if (!node || !depth)
     return '';
@@ -6472,11 +6394,8 @@ lozBoard.prototype.getPVStr = function(node,move,depth,fmt) {
   node.cache();
   this.makeMove(node,move);
 
-  if (typeof fmt == 'undefined')
-    fmt = this.mvFmt;
-
-  var mv = this.formatMove(move, fmt);
-  var pv = ' ' + this.getPVStr(node.childNode,0,depth-1,fmt);
+  var mv = this.formatMove(move, this.mvFmt);
+  var pv = ' ' + this.getPVStr(node.childNode,0,depth-1);
 
   this.unmakeMove(node,move);
   node.uncache();
@@ -6980,7 +6899,6 @@ lozStats.prototype.init = function () {
   this.selDepth  = 0;
   this.bestMove  = 0;
   this.rootMoves = [];
-  this.searchMoves = null;
 }
 
 //}}}
@@ -7117,11 +7035,8 @@ lozUCI.prototype.debug = function () {
 
 lozUCI.prototype.initOptions = function () {
 
-  this.options['Hash'] = DEFAULT_HASH_MB;
   this.options['MultiPV'] = 1;
-  this.options['Ponder'] = false;
   this.options['Move Overhead'] = 0;
-  this.options['UCI_AnalyseMode'] = false;
   this.options['UCI_ShowWDL'] = false;
   this.options['UCI_ShowACPL'] = false;
   this.options['PVFormat'] = lozzaHost == HOST_WEB ? 'san' : 'uci';
@@ -7191,19 +7106,8 @@ lozUCI.prototype.setOption = function (key, value) {
   if (!key)
     return;
 
-  if (key == 'Hash') {
-    this.options[key] = clamp(parseInt(value, 10) || DEFAULT_HASH_MB, MIN_HASH_MB, MAX_HASH_MB);
-    lozza.board.setHashSize(this.options[key]);
-    return;
-  }
-
   if (key == 'Clear Hash') {
     lozza.board.ttInit();
-    return;
-  }
-
-  if (key == 'Ponder' || key == 'UCI_AnalyseMode') {
-    this.options[key] = /^(true|1|on)$/i.test(value);
     return;
   }
 
@@ -7236,52 +7140,11 @@ lozUCI.prototype.setOption = function (key, value) {
 lozUCI.prototype.sendOptions = function () {
 
   this.send('option name Clear Hash type button');
-  this.send('option name Hash type spin default ' + DEFAULT_HASH_MB + ' min ' + MIN_HASH_MB + ' max ' + MAX_HASH_MB);
   this.send('option name MultiPV type spin default 1 min 1 max 12');
-  this.send('option name Ponder type check default false');
   this.send('option name Move Overhead type spin default 0 min 0 max 5000');
-  this.send('option name UCI_AnalyseMode type check default false');
   this.send('option name UCI_ShowWDL type check default false');
   this.send('option name UCI_ShowACPL type check default false');
   this.send('option name PVFormat type combo default uci var uci var san');
-}
-
-//}}}
-//{{{  .getSearchMoves
-
-lozUCI.prototype.getSearchMoves = function () {
-
-  var searchMoves = [];
-  var collecting = false;
-  var stopWords = {
-    searchmoves: 1,
-    ponder: 1,
-    wtime: 1,
-    btime: 1,
-    winc: 1,
-    binc: 1,
-    movestogo: 1,
-    depth: 1,
-    nodes: 1,
-    mate: 1,
-    movetime: 1,
-    infinite: 1
-  };
-
-  for (var i=1; i < this.tokens.length; i++) {
-    if (this.tokens[i] == 'searchmoves') {
-      collecting = true;
-      continue;
-    }
-
-    if (collecting) {
-      if (stopWords[this.tokens[i]])
-        break;
-      searchMoves.push(this.tokens[i]);
-    }
-  }
-
-  return searchMoves;
 }
 
 //}}}
@@ -7444,16 +7307,6 @@ onmessage = function(e) {
       uci.spec.wInc      = uci.getInt('winc',0);
       uci.spec.bInc      = uci.getInt('binc',0);
       uci.spec.movesToGo = uci.getInt('movestogo',0);
-      uci.spec.ponder    = uci.tokens.indexOf('ponder') >= 0;
-      uci.spec.analyseMode = uci.getOption('UCI_AnalyseMode', false);
-      uci.spec.searchMoves = uci.getSearchMoves();
-      lozza.stats.searchMoves = null;
-
-      if (uci.spec.searchMoves.length) {
-        lozza.stats.searchMoves = {};
-        for (var i=0; i < uci.spec.searchMoves.length; i++)
-          lozza.stats.searchMoves[uci.spec.searchMoves[i]] = 1;
-      }
       
       uci.numMoves++;
       
