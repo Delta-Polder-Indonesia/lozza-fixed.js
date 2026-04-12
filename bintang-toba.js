@@ -2449,7 +2449,13 @@
       if (this.searchTimer) clearTimeout(this.searchTimer);
       this.searchTimer = setTimeout(() => {
         this.searchTimer = null;
-        this.search(spec);
+        try {
+          this.search(spec);
+        } catch (err) {
+          const msg = err && err.message ? err.message : String(err);
+          this.send('info string error search', msg);
+          this.send('bestmove 0000');
+        }
       }, 0);
     }
 
@@ -2638,7 +2644,16 @@
   const engine = new Engine();
   self.onmessage = (e) => {
     const lines = String(e.data||'').split(/\r?\n/);
-    for (const ln of lines) { const l=ln.trim(); if (l) engine.command(l); }
+    for (const ln of lines) {
+      const l = ln.trim();
+      if (!l) continue;
+      try {
+        engine.command(l);
+      } catch (err) {
+        const msg = err && err.message ? err.message : String(err);
+        engine.send('info string error command', msg, 'line', l);
+      }
+    }
   };
 
 })();
