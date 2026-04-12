@@ -4,7 +4,7 @@
 // A Javascript chess engine inspired by Fabien Letouzey's Fruit 2.1.
 //
 
-var BUILD       = "2.6";
+var BUILD       = "2.5";
 var USEPAWNHASH = 1;
 
 //{{{  history
@@ -48,13 +48,6 @@ else if ((typeof WorkerGlobalScope) == 'undefined') {
 
 function myround(x) {
   return Math.sign(x) * Math.round(Math.abs(x));
-}
-
-//}}}
-//{{{  clamp
-
-function clamp(x, lo, hi) {
-  return Math.max(lo, Math.min(hi, x));
 }
 
 //}}}
@@ -1665,9 +1658,6 @@ lozChess.prototype.go = function() {
 
   var board = this.board;
   var spec  = this.uci.spec;
-  var moveOverhead = this.uci.getOptionInt('Move Overhead', 0);
-
-  board.mvFmt = this.uci.getOption('PVFormat', lozzaHost == HOST_WEB ? 'san' : 'uci') == 'san' ? SAN_FMT : UCI_FMT;
 
   //{{{  sort out spec
   
@@ -1681,7 +1671,7 @@ lozChess.prototype.go = function() {
     spec.depth = MAX_PLY;
   
   if (spec.moveTime > 0)
-    this.stats.moveTime = Math.max(1, spec.moveTime - moveOverhead);
+    this.stats.moveTime = spec.moveTime;
   
   if (spec.maxNodes > 0)
     this.stats.maxNodes = spec.maxNodes;
@@ -1704,7 +1694,6 @@ lozChess.prototype.go = function() {
   
     //totTime = myround(totTime * (movesToGo - 1) / movesToGo);
     movTime = myround(totTime / movesToGo) + incTime;
-    movTime -= moveOverhead;
   
     //if (this.uci.numMoves <= 3) {
       //movTime *= 2;
@@ -1721,31 +1710,56 @@ lozChess.prototype.go = function() {
   
   //}}}
 
+  var alpha       = 0;
+  var beta        = 0;
   var ply         = 1;
   var maxPly      = spec.depth;
   var bestMoveStr = '';
   var score       = 0;
+  var delta       = 0;
 
   for (ply=1; ply <= maxPly; ply++) {
 
     this.stats.ply = ply;
-    score = this.search(this.rootNode, ply, board.turn, -INFINITY, INFINITY);
+
+    alpha = -INFINITY;
+    beta  = INFINITY;
+    delta = 10;
+
+    if (ply >= 4) {
+      alpha = Math.max(-INFINITY, score - delta);
+      beta  = Math.min(INFINITY,  score + delta);
+    }
+
+    while (1) {
+
+      score = this.search(this.rootNode, ply, board.turn, alpha, beta);
+
+      if (this.stats.timeOut)
+        break;
+
+      if (score > alpha && score < beta)
+        break;
+
+      if (Math.abs(score) >= MINMATE && Math.abs(score) <= MATE)
+        break;
+
+      delta += delta/2 | 0;
+
+      alpha = Math.max(-INFINITY, score - delta);
+      beta  = Math.min(INFINITY,  score + delta);
+    }
 
     if (this.stats.timeOut)
       break;
-
-    this.sendRootInfo(this.stats.rootMoves, ply);
   }
 
   this.stats.update();
   this.stats.stop();
 
-  if (this.stats.bestMove)
-    bestMoveStr = board.formatMove(this.stats.bestMove,UCI_FMT);
-  else
-    bestMoveStr = '0000';
+  bestMoveStr = board.formatMove(this.stats.bestMove,UCI_FMT);
 
-  if (lozzaHost == HOST_WEB && this.stats.bestMove)
+  if (lozzaHost == HOST_WEB)
     board.makeMove(this.rootNode,this.stats.bestMove);
 
   this.uci.send('bestmove',bestMoveStr);
@@ -1782,7 +1796,6 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
   var givesCheck     = INCHECK_UNKNOWN;
   var keeper         = false;
   var doLMR          = depth >= 3;
-  var rootMoves      = [];
 
   node.cache();
 
@@ -1846,7 +1859,15 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
     
     //}}}
 
-    score = -this.alphabeta(node.childNode, depth+E-1, nextTurn, -INFINITY, INFINITY, NULL_Y, givesCheck);
+    if (numLegalMoves == 1) {
+      score = -this.alphabeta(node.childNode, depth+E-1, nextTurn, -beta, -alpha, NULL_Y, givesCheck);
+    }
+    else {
+      score = -this.alphabeta(node.childNode, depth+E-R-1, nextTurn, -alpha-1, -alpha, NULL_Y, givesCheck);
+      if (!this.stats.timeOut && score > alpha) {
+        score = -this.alphabeta(node.childNode, depth+E-1, nextTurn, -beta, -alpha, NULL_Y, givesCheck);
+      }
+    }
 
     //{{{  unmake move
     
@@ -1860,14 +1881,42 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
       return;
     }
 
-    var pvStr = board.getPVStr(node,move,depth).trim();
-    rootMoves.push(this.makeRootMove(move, score, depth, pvStr));
-
     if (score > bestScore) {
       if (score > alpha) {
+        if (score >= beta) {
+          node.addKiller(score, move);
+          board.ttPut(TT_BETA, depth, score, move, node.ply, alpha, beta, INFINITY);
+          board.addHistory(depth*depth*depth, move);
+          return score;
+        }
         alpha = score;
         board.addHistory(depth*depth, move);
+        //{{{  update best move & send score to UI
+        
         this.stats.bestMove = move;
+        
+        var absScore = Math.abs(score);
+        var units    = 'cp';
+        var uciScore = score;
+        var mv       = board.formatMove(move,board.mvFmt);
+        var pvStr    = board.getPVStr(node,move,depth);
+        
+        if (absScore >= MINMATE && absScore <= MATE) {
+          if (lozzaHost != HOST_NODEJS)
+            pvStr += '#';
+          var units    = 'mate';
+          var uciScore = (MATE - absScore) / 2 | 0;
+          if (score < 0)
+            uciScore = -uciScore;
+        }
+        
+        this.uci.send('info',this.stats.nodeStr(),'depth',this.stats.ply,'seldepth',this.stats.selDepth,'score',units,uciScore,'pv',pvStr);
+        //this.stats.update();
+        
+        if (this.stats.splits > 5)
+          this.uci.send('info hashfull',myround(1000*board.hashUsed/TTSIZE));
+        
+        //}}}
       }
       bestScore = score;
       bestMove  = move;
@@ -1876,17 +1925,6 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
       board.addHistory(-depth, move);
   }
 
-
-  if (numLegalMoves == 0) {
-    this.stats.rootMoves = [];
-    return inCheck ? -MATE + node.ply : CONTEMPT;
-  }
-
-  rootMoves.sort(function (a, b) {
-    return b.score - a.score;
-  });
-
-  this.stats.rootMoves = rootMoves;
 
   if (numLegalMoves == 1)
     this.stats.timeOut = 1;  // only one legal move so don't waste any more time.
@@ -1899,153 +1937,6 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
     board.ttPut(TT_ALPHA, depth, oAlpha,    bestMove, node.ply, alpha, beta, INFINITY);
     return oAlpha;
   }
-}
-
-//}}}
-//{{{  .makeRootMove
-
-lozChess.prototype.makeRootMove = function (move, score, depth, pvStr) {
-
-  var scoreInfo = this.describeScore(score);
-
-  if (!pvStr)
-    pvStr = this.board.formatMove(move, this.board.mvFmt);
-
-  return {
-    move: move,
-    score: score,
-    depth: depth,
-    pv: pvStr,
-    units: scoreInfo.units,
-    uciScore: scoreInfo.value,
-    wdl: this.scoreToWDL(score)
-  };
-}
-
-//}}}
-//{{{  .describeScore
-
-lozChess.prototype.describeScore = function (score) {
-
-  var absScore = Math.abs(score);
-
-  if (absScore >= MINMATE && absScore <= MATE) {
-    var mateScore = (MATE - absScore) / 2 | 0;
-    if (score < 0)
-      mateScore = -mateScore;
-
-    return {
-      units: 'mate',
-      value: mateScore
-    };
-  }
-
-  return {
-    units: 'cp',
-    value: score
-  };
-}
-
-//}}}
-//{{{  .scoreToWDL
-
-lozChess.prototype.scoreToWDL = function (score) {
-
-  if (score >= MINMATE)
-    return {win: 1000, draw: 0, loss: 0};
-
-  if (score <= -MINMATE)
-    return {win: 0, draw: 0, loss: 1000};
-
-  var draw = 220 * Math.exp(-Math.abs(score) / 280);
-  var decisive = Math.max(0, 1000 - draw);
-  var winRatio = 1 / (1 + Math.exp(-score / 180));
-  var win = decisive * winRatio;
-  var loss = decisive - win;
-
-  return {
-    win: myround(win),
-    draw: myround(draw),
-    loss: myround(loss)
-  };
-}
-
-//}}}
-//{{{  .estimateACPL
-
-lozChess.prototype.estimateACPL = function (rootMoves) {
-
-  if (!rootMoves || rootMoves.length < 2)
-    return 0;
-
-  var bestScore = rootMoves[0].score;
-
-  if (Math.abs(bestScore) >= MINMATE)
-    return 0;
-
-  var total = 0;
-  var count = 0;
-
-  for (var i=1; i < rootMoves.length; i++) {
-    if (Math.abs(rootMoves[i].score) >= MINMATE)
-      continue;
-
-    total += Math.max(0, bestScore - rootMoves[i].score);
-    count++;
-  }
-
-  if (!count)
-    return 0;
-
-  return myround(total / count);
-}
-
-//}}}
-//{{{  .sendRootInfo
-
-lozChess.prototype.sendRootInfo = function (rootMoves, depth) {
-
-  if (!rootMoves || !rootMoves.length)
-    return;
-
-  var uci = this.uci;
-  var limit = Math.min(uci.getOptionInt('MultiPV', 1), rootMoves.length);
-  var showWDL = uci.getOption('UCI_ShowWDL', false);
-  var showACPL = uci.getOption('UCI_ShowACPL', false);
-
-  for (var i=0; i < limit; i++) {
-    var line = rootMoves[i];
-    var parts = [
-      'info',
-      this.stats.nodeStr(),
-      'depth',
-      depth,
-      'seldepth',
-      this.stats.selDepth,
-      'multipv',
-      i + 1,
-      'score',
-      line.units,
-      line.uciScore
-    ];
-
-    if (showWDL) {
-      parts.push('wdl');
-      parts.push(line.wdl.win);
-      parts.push(line.wdl.draw);
-      parts.push(line.wdl.loss);
-    }
-
-    parts.push('pv');
-    parts.push(line.pv);
-
-    uci.send.apply(uci, parts);
-  }
-
-  if (showACPL)
-    uci.send('info string acpl', this.estimateACPL(rootMoves), 'depth', depth);
-
-  uci.send('info hashfull',myround(1000*this.board.hashUsed/TTSIZE));
 }
 
 //}}}
@@ -6898,7 +6789,6 @@ lozStats.prototype.init = function () {
   this.timeOut   = 0;
   this.selDepth  = 0;
   this.bestMove  = 0;
-  this.rootMoves = [];
 }
 
 //}}}
@@ -6978,7 +6868,6 @@ function lozUCI () {
   this.numMoves  = 0;
 
   this.options = {};
-  this.initOptions();
 }
 
 //}}}
@@ -7028,123 +6917,6 @@ lozUCI.prototype.debug = function () {
     this.post('info string debug ' + this.spec.id + ' ' + s);
   else
     this.post('info string debug ');
-}
-
-//}}}
-//{{{  .initOptions
-
-lozUCI.prototype.initOptions = function () {
-
-  this.options['MultiPV'] = 1;
-  this.options['Move Overhead'] = 0;
-  this.options['UCI_ShowWDL'] = false;
-  this.options['UCI_ShowACPL'] = false;
-  this.options['PVFormat'] = lozzaHost == HOST_WEB ? 'san' : 'uci';
-}
-
-//}}}
-//{{{  .getOption
-
-lozUCI.prototype.getOption = function (key, def) {
-
-  if (typeof this.options[key] == 'undefined')
-    return def;
-
-  return this.options[key];
-}
-
-//}}}
-//{{{  .getOptionInt
-
-lozUCI.prototype.getOptionInt = function (key, def) {
-
-  var value = parseInt(this.getOption(key, def), 10);
-
-  if (isNaN(value))
-    return def;
-
-  return value;
-}
-
-//}}}
-//{{{  .parseOptionCommand
-
-lozUCI.prototype.parseOptionCommand = function () {
-
-  var mode = '';
-  var name = [];
-  var value = [];
-
-  for (var i=1; i < this.tokens.length; i++) {
-    if (this.tokens[i] == 'name') {
-      mode = 'name';
-      continue;
-    }
-
-    if (this.tokens[i] == 'value') {
-      mode = 'value';
-      continue;
-    }
-
-    if (mode == 'name')
-      name.push(this.tokens[i]);
-    else if (mode == 'value')
-      value.push(this.tokens[i]);
-  }
-
-  return {
-    name: name.join(' ').trim(),
-    value: value.join(' ').trim()
-  };
-}
-
-//}}}
-//{{{  .setOption
-
-lozUCI.prototype.setOption = function (key, value) {
-
-  if (!key)
-    return;
-
-  if (key == 'Clear Hash') {
-    lozza.board.ttInit();
-    return;
-  }
-
-  if (key == 'MultiPV') {
-    this.options[key] = clamp(parseInt(value, 10) || 1, 1, 12);
-    return;
-  }
-
-  if (key == 'Move Overhead') {
-    this.options[key] = clamp(parseInt(value, 10) || 0, 0, 5000);
-    return;
-  }
-
-  if (key == 'UCI_ShowWDL' || key == 'UCI_ShowACPL') {
-    this.options[key] = /^(true|1|on)$/i.test(value);
-    return;
-  }
-
-  if (key == 'PVFormat') {
-    this.options[key] = value == 'san' ? 'san' : 'uci';
-    return;
-  }
-
-  this.options[key] = value;
-}
-
-//}}}
-//{{{  .sendOptions
-
-lozUCI.prototype.sendOptions = function () {
-
-  this.send('option name Clear Hash type button');
-  this.send('option name MultiPV type spin default 1 min 1 max 12');
-  this.send('option name Move Overhead type spin default 0 min 0 max 5000');
-  this.send('option name UCI_ShowWDL type check default false');
-  this.send('option name UCI_ShowACPL type check default false');
-  this.send('option name PVFormat type combo default uci var uci var san');
 }
 
 //}}}
@@ -7367,7 +7139,6 @@ onmessage = function(e) {
       
       uci.send('id name Lozza',BUILD);
       uci.send('id author Colin Jenkins');
-      uci.sendOptions();
       uci.send('uciok');
       
       break;
@@ -7386,9 +7157,10 @@ onmessage = function(e) {
     case 'setoption':
       //{{{  setoption
       
-      var option = uci.parseOptionCommand();
+      var key = uci.getStr('name');
+      var val = uci.getStr('value');
       
-      uci.setOption(option.name, option.value);
+      uci.options[key] = val;
       
       break;
       
