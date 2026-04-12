@@ -1260,6 +1260,25 @@
 
       this.nodes++;
       this.selDepth = Math.max(this.selDepth, ply);
+      if (ply >= 120) return this.evaluate();
+
+      const inChk = this.inCheck(this.side);
+
+      if (inChk) {
+        const evasions = this.genMoves(false);
+        if (evasions.length === 0) return -MATE + ply;
+        const ttBest = this.tt.getBestMove(this.hash);
+        this.orderMoves(evasions, ttBest, ply);
+        for (const m of evasions) {
+          this.makeMove(m);
+          const score = -this.qsearch(-beta, -alpha, ply + 1);
+          this.undoMove();
+          if (this.stop) return alpha;
+          if (score >= beta) return beta;
+          if (score > alpha) alpha = score;
+        }
+        return alpha;
+      }
 
       const stand = this.evaluate();
       if (stand >= beta) return beta;
@@ -1314,6 +1333,15 @@
       if (!isPV && ttScore !== null) return ttScore;
       const ttBestEnc = this.tt.getBestMove(this.hash);
 
+      let staticEval = 0;
+      if (!inChk) staticEval = this.evaluate();
+
+      /* Reverse futility pruning */
+      if (!isPV && !inChk && depth <= 3) {
+        const margin = 100 * depth;
+        if (staticEval - margin >= beta) return staticEval - margin;
+      }
+
       /* Null-move pruning */
       if (allowNull && !isPV && depth >= 3 && !inChk && this.hasNonPawnMaterial(this.side)) {
         const R = depth >= 6 ? 4 : 3;
@@ -1326,7 +1354,7 @@
 
       /* Razoring */
       if (!isPV && !inChk && depth <= 2) {
-        const razor = this.evaluate() + 300 * depth;
+        const razor = staticEval + 300 * depth;
         if (razor < alpha) {
           const q = this.qsearch(alpha, beta, ply);
           if (q < alpha) return alpha;
@@ -1342,8 +1370,26 @@
       let bestScore = -INF;
       let bestMove  = null;
       let legalIdx  = 0;
+      let moveTried = 0;
 
       for (const m of moves) {
+        moveTried++;
+        const quietMove = (m.flags & (FLAG_CAPTURE | FLAG_PROMO | FLAG_EP)) === 0;
+
+        /* Late move pruning for quiet moves in low depth */
+        if (!isPV && !inChk && quietMove && depth <= 3) {
+          const limit = depth === 1 ? 6 : (depth === 2 ? 10 : 16);
+          if (moveTried >= limit) continue;
+        }
+
+        /* Node futility pruning for quiet moves */
+        if (!isPV && !inChk && quietMove && depth <= 2) {
+          const futMargin = 120 * depth;
+          if (staticEval + futMargin <= alpha) {
+            continue;
+          }
+        }
+
         this.makeMove(m);
         let score;
 
