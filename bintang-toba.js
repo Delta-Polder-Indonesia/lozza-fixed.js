@@ -1,6 +1,6 @@
 /*
-  Bintang Toba Chess Engine v2.0 (Web Worker)
-  Fixed & optimized version.
+  Bintang Toba Chess Engine v2.1 (Web Worker)
+  Fully revised version with all review recommendations applied.
 */
 
 (() => {
@@ -18,6 +18,7 @@
 
   const INF = 30000;
   const MATE = 29000;
+  const MATE_BOUND = MATE - 200;
   const DEFAULT_HASH_MB = 16;
   const MIN_HASH_MB = 1;
   const MAX_HASH_MB = 256;
@@ -28,34 +29,38 @@
   const FLAG_CASTLE  = 4;
   const FLAG_PROMO   = 8;
 
+  const MAX_PLY     = 128;
+  const MAX_MOVES   = 256;
+  const TEMPO_MG    = 12;
+  const TEMPO_EG    = 6;
+
+  /* ── Directions ── */
   const KNIGHT_DIR = [31, 33, 14, -14, 18, -18, -31, -33];
   const BISHOP_DIR = [15, 17, -15, -17];
   const ROOK_DIR   = [1, -1, 16, -16];
   const KING_DIR   = [1, -1, 16, -16, 15, 17, -15, -17];
 
-  const PIECE_VALUE = {
-    [WP]: 100, [WN]: 300, [WB]: 300, [WR]: 500, [WQ]: 900, [WK]: 0,
-    [BP]: 100, [BN]: 300, [BB]: 300, [BR]: 500, [BQ]: 900, [BK]: 0,
-  };
+  /* ── Material values ── */
+  const PIECE_VALUE = new Int16Array(16);
+  PIECE_VALUE[WP] = 100; PIECE_VALUE[WN] = 300; PIECE_VALUE[WB] = 310;
+  PIECE_VALUE[WR] = 500; PIECE_VALUE[WQ] = 900; PIECE_VALUE[WK] = 0;
+  PIECE_VALUE[BP] = 100; PIECE_VALUE[BN] = 300; PIECE_VALUE[BB] = 310;
+  PIECE_VALUE[BR] = 500; PIECE_VALUE[BQ] = 900; PIECE_VALUE[BK] = 0;
 
-  const PIECE_CH = {
-    [WP]:'P',[WN]:'N',[WB]:'B',[WR]:'R',[WQ]:'Q',[WK]:'K',
-    [BP]:'p',[BN]:'n',[BB]:'b',[BR]:'r',[BQ]:'q',[BK]:'k',
-  };
+  const PIECE_CH = { [WP]:'P',[WN]:'N',[WB]:'B',[WR]:'R',[WQ]:'Q',[WK]:'K',
+                      [BP]:'p',[BN]:'n',[BB]:'b',[BR]:'r',[BQ]:'q',[BK]:'k' };
+  const CH_PIECE = { P:WP,N:WN,B:WB,R:WR,Q:WQ,K:WK,
+                     p:BP,n:BN,b:BB,r:BR,q:BQ,k:BK };
 
-  const CH_PIECE = {
-    P:WP,N:WN,B:WB,R:WR,Q:WQ,K:WK,
-    p:BP,n:BN,b:BB,r:BR,q:BQ,k:BK,
-  };
+  function isWhite(p)  { return p >= WP && p <= WK; }
+  function isBlack(p)  { return p >= BP && p <= BK; }
+  function colorOf(p)  { return isWhite(p) ? WHITE : BLACK; }
+  function opponent(c) { return c ^ 1; }
+  function onBoard(sq) { return (sq & 0x88) === 0; }
+  function pieceType(p){ return p & 7; }
 
-  function isWhite(p)    { return p >= WP && p <= WK; }
-  function isBlack(p)    { return p >= BP && p <= BK; }
-  function colorOf(p)    { return isWhite(p) ? WHITE : BLACK; }
-  function opponent(c)   { return c ^ 1; }
-  function onBoard(sq)   { return (sq & 0x88) === 0; }
-
-  /* ── Piece-square tables (white view, rank-8 first in array = rank index 7) ── */
-  const PST_PAWN = [
+  /* ── PST tables (white view, a8=index 0) ── */
+  const PST_PAWN_MG = new Int16Array([
       0,  0,  0,  0,  0,  0,  0,  0,
      50, 50, 50, 50, 50, 50, 50, 50,
      10, 10, 20, 30, 30, 20, 10, 10,
@@ -64,8 +69,18 @@
       5, -5,-10,  0,  0,-10, -5,  5,
       5, 10, 10,-20,-20, 10, 10,  5,
       0,  0,  0,  0,  0,  0,  0,  0,
-  ];
-  const PST_KNIGHT = [
+  ]);
+  const PST_PAWN_EG = new Int16Array([
+      0,  0,  0,  0,  0,  0,  0,  0,
+     70, 70, 70, 70, 70, 70, 70, 70,
+     30, 30, 35, 40, 40, 35, 30, 30,
+     15, 15, 20, 30, 30, 20, 15, 15,
+      5,  5, 10, 20, 20, 10,  5,  5,
+      0,  0,  0,  5,  5,  0,  0,  0,
+     -5, -5, -5,-10,-10, -5, -5, -5,
+      0,  0,  0,  0,  0,  0,  0,  0,
+  ]);
+  const PST_KNIGHT_MG = new Int16Array([
     -50,-40,-30,-30,-30,-30,-40,-50,
     -40,-20,  0,  0,  0,  0,-20,-40,
     -30,  0, 10, 15, 15, 10,  0,-30,
@@ -74,8 +89,18 @@
     -30,  5, 10, 15, 15, 10,  5,-30,
     -40,-20,  0,  5,  5,  0,-20,-40,
     -50,-40,-30,-30,-30,-30,-40,-50,
-  ];
-  const PST_BISHOP = [
+  ]);
+  const PST_KNIGHT_EG = new Int16Array([
+    -50,-40,-30,-30,-30,-30,-40,-50,
+    -40,-20,  0,  5,  5,  0,-20,-40,
+    -30,  0, 15, 20, 20, 15,  0,-30,
+    -30,  5, 20, 25, 25, 20,  5,-30,
+    -30,  0, 20, 25, 25, 20,  0,-30,
+    -30,  5, 15, 20, 20, 15,  5,-30,
+    -40,-20,  0,  5,  5,  0,-20,-40,
+    -50,-40,-30,-30,-30,-30,-40,-50,
+  ]);
+  const PST_BISHOP_MG = new Int16Array([
     -20,-10,-10,-10,-10,-10,-10,-20,
     -10,  0,  0,  0,  0,  0,  0,-10,
     -10,  0,  5, 10, 10,  5,  0,-10,
@@ -84,8 +109,18 @@
     -10, 10, 10, 10, 10, 10, 10,-10,
     -10,  5,  0,  0,  0,  0,  5,-10,
     -20,-10,-10,-10,-10,-10,-10,-20,
-  ];
-  const PST_ROOK = [
+  ]);
+  const PST_BISHOP_EG = new Int16Array([
+    -20,-10,-10,-10,-10,-10,-10,-20,
+    -10,  0,  5,  5,  5,  5,  0,-10,
+    -10,  5, 10, 15, 15, 10,  5,-10,
+    -10,  5, 15, 20, 20, 15,  5,-10,
+    -10,  5, 15, 20, 20, 15,  5,-10,
+    -10,  5, 10, 15, 15, 10,  5,-10,
+    -10,  0,  5,  5,  5,  5,  0,-10,
+    -20,-10,-10,-10,-10,-10,-10,-20,
+  ]);
+  const PST_ROOK_MG = new Int16Array([
       0,  0,  0,  0,  0,  0,  0,  0,
       5, 10, 10, 10, 10, 10, 10,  5,
      -5,  0,  0,  0,  0,  0,  0, -5,
@@ -94,8 +129,18 @@
      -5,  0,  0,  0,  0,  0,  0, -5,
      -5,  0,  0,  0,  0,  0,  0, -5,
       0,  0,  0,  5,  5,  0,  0,  0,
-  ];
-  const PST_QUEEN = [
+  ]);
+  const PST_ROOK_EG = new Int16Array([
+      0,  0,  0,  0,  0,  0,  0,  0,
+      5,  5,  5,  5,  5,  5,  5,  5,
+      0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  5,  5,  0,  0,  0,
+  ]);
+  const PST_QUEEN_MG = new Int16Array([
     -20,-10,-10, -5, -5,-10,-10,-20,
     -10,  0,  0,  0,  0,  0,  0,-10,
     -10,  0,  5,  5,  5,  5,  0,-10,
@@ -104,8 +149,18 @@
     -10,  5,  5,  5,  5,  5,  0,-10,
     -10,  0,  5,  0,  0,  0,  0,-10,
     -20,-10,-10, -5, -5,-10,-10,-20,
-  ];
-  const PST_KING_MG = [
+  ]);
+  const PST_QUEEN_EG = new Int16Array([
+    -20,-10,-10, -5, -5,-10,-10,-20,
+    -10,  0,  5,  5,  5,  5,  0,-10,
+    -10,  5, 10, 10, 10, 10,  5,-10,
+     -5,  5, 10, 15, 15, 10,  5, -5,
+     -5,  5, 10, 15, 15, 10,  5, -5,
+    -10,  5, 10, 10, 10, 10,  5,-10,
+    -10,  0,  5,  5,  5,  5,  0,-10,
+    -20,-10,-10, -5, -5,-10,-10,-20,
+  ]);
+  const PST_KING_MG = new Int16Array([
     -30,-40,-40,-50,-50,-40,-40,-30,
     -30,-40,-40,-50,-50,-40,-40,-30,
     -30,-40,-40,-50,-50,-40,-40,-30,
@@ -114,8 +169,8 @@
     -10,-20,-20,-20,-20,-20,-20,-10,
      20, 20,  0,  0,  0,  0, 20, 20,
      20, 30, 10,  0,  0, 10, 30, 20,
-  ];
-  const PST_KING_EG = [
+  ]);
+  const PST_KING_EG = new Int16Array([
     -50,-30,-30,-30,-30,-30,-30,-50,
     -30,-20,-10,-10,-10,-10,-20,-30,
     -30,-10, 20, 30, 30, 20,-10,-30,
@@ -124,29 +179,36 @@
     -30,-10, 20, 30, 30, 20,-10,-30,
     -30,-30,  0,  0,  0,  0,-30,-30,
     -50,-30,-30,-30,-30,-30,-30,-50,
-  ];
+  ]);
 
-  const PHASE_WEIGHT = {
-    [WP]: 0, [WN]: 1, [WB]: 1, [WR]: 2, [WQ]: 4, [WK]: 0,
-    [BP]: 0, [BN]: 1, [BB]: 1, [BR]: 2, [BQ]: 4, [BK]: 0,
-  };
+  /* PST lookup tables indexed by piece type (1-6) */
+  const PST_MG = [null, PST_PAWN_MG, PST_KNIGHT_MG, PST_BISHOP_MG, PST_ROOK_MG, PST_QUEEN_MG, PST_KING_MG];
+  const PST_EG = [null, PST_PAWN_EG, PST_KNIGHT_EG, PST_BISHOP_EG, PST_ROOK_EG, PST_QUEEN_EG, PST_KING_EG];
+
+  const PHASE_WEIGHT = new Int8Array(16);
+  PHASE_WEIGHT[WN] = 1; PHASE_WEIGHT[WB] = 1; PHASE_WEIGHT[WR] = 2; PHASE_WEIGHT[WQ] = 4;
+  PHASE_WEIGHT[BN] = 1; PHASE_WEIGHT[BB] = 1; PHASE_WEIGHT[BR] = 2; PHASE_WEIGHT[BQ] = 4;
   const MAX_PHASE = 24;
+
   const MVV_LVA = (() => {
     const t = Array.from({ length: 7 }, () => new Int16Array(7));
-    for (let victim = 1; victim <= 6; victim++) {
-      for (let attacker = 1; attacker <= 6; attacker++) {
-        t[victim][attacker] = victim * 16 - attacker;
-      }
-    }
+    for (let v = 1; v <= 6; v++)
+      for (let a = 1; a <= 6; a++)
+        t[v][a] = v * 16 - a;
     return t;
   })();
-  const PAWN_PASSED = [0, 0, 0, 0, 0.1, 0.3, 0.7, 1.2, 0];
-  const ATT_W = [0, 0.01, 0.42, 0.78, 1.11, 1.52, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
-  const MOBN_S = 4, MOBN_E = -5, MOBN_S0 = -9,  MOBN_E0 = -73;
-  const MOBB_S = 7, MOBB_E =  2, MOBB_S0 = -10, MOBB_E0 = -48;
-  const MOBR_S = 5, MOBR_E =  2, MOBR_S0 = -2,  MOBR_E0 = -50;
-  const MOBQ_S = 3, MOBQ_E =  6, MOBQ_S0 = 6,   MOBQ_E0 = 0;
+  /* Passed pawn advancement bonus (index = rank for white 1-7, 0 unused) */
+  const PAWN_PASSED = [0, 0, 0, 0.1, 0.3, 0.7, 1.2, 2.0];
+
+  /* Attack weight by attacker count */
+  const ATT_W = new Float64Array([0,0.01,0.42,0.78,1.11,1.52,1,1,1,1,1,1,1,1,1,1,1]);
+
+  /* Mobility weights */
+  const MOBN_S = 4,  MOBN_E = -5, MOBN_S0 = -9,  MOBN_E0 = -73;
+  const MOBB_S = 7,  MOBB_E =  2, MOBB_S0 = -10, MOBB_E0 = -48;
+  const MOBR_S = 5,  MOBR_E =  2, MOBR_S0 = -2,  MOBR_E0 = -50;
+  const MOBQ_S = 3,  MOBQ_E =  6, MOBQ_S0 = 6,   MOBQ_E0 = 0;
 
   const TIGHT_NS = 4,   TIGHT_NE = -4;
   const TIGHT_BS = 10,  TIGHT_BE = 9;
@@ -165,8 +227,25 @@
   const ROOK_DOUBLED_S = 27, ROOK_DOUBLED_E = -3;
   const QUEEN7TH_S = -75, QUEEN7TH_E = 55;
 
-  // Opening book removed. GUI-side books can be used instead.
+  /* Pawn structure weights */
+  const DOUBLED_MG = 11, DOUBLED_EG = 3;
+  const ISOLATED_MG = 13, ISOLATED_EG = 12;
+  const CONNECTED_BONUS = 8;
+  const BLOCKED_PAWN_MG = 8, BLOCKED_PAWN_EG = 12;
 
+  /* King safety weights */
+  const KSAFETY_SHELTER = 5, KSAFETY_SHELTER_EG = 2;
+  const KSAFETY_STORM = 4, KSAFETY_STORM_EG = 2;
+  const KSAFETY_OPEN = 8, KSAFETY_OPEN_EG_DIV = 2;
+  const KSAFETY_ATTACK = 7, KSAFETY_ATTACK_EG = 3;
+  const KSAFETY_SAFE_BONUS = 10;
+
+  /* WDL model constants */
+  const WDL_DRAW_COEFF = 220;
+  const WDL_DRAW_SCALE = 280;
+  const WDL_WIN_SCALE  = 180;
+
+  /* ── Bench positions ── */
   const BENCH_FENS = [
     START_FEN,
     'r1bq1rk1/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 4 7',
@@ -177,19 +256,14 @@
   ];
 
   const PERFT_SUITE = [
-    {
-      name: 'startpos',
-      fen: START_FEN,
-      expected: { 1: 20, 2: 400, 3: 8902, 4: 197281 },
-    },
-    {
-      name: 'kiwipete',
-      fen: 'r3k2r/p1ppqpb1/bn2pnp1/2P5/1p2P3/2N2N2/PPQ1BPPP/R3K2R w KQkq - 0 1',
-      expected: { 1: 48, 2: 2039, 3: 97862, 4: 4085603 },
-    },
+    { name:'startpos', fen:START_FEN, expected:{1:20,2:400,3:8902,4:197281} },
+    { name:'kiwipete', fen:'r3k2r/p1ppqpb1/bn2pnp1/2P5/1p2P3/2N2N2/PPQ1BPPP/R3K2R w KQkq - 0 1',
+      expected:{1:48,2:2039,3:97862,4:4085603} },
   ];
 
-  /* ────────────────────────────────────────────────────────── */
+  /* ──────────────────────────────────────────────── */
+  /* ── 64-bit Zobrist using two 32-bit halves     ── */
+  /* ──────────────────────────────────────────────── */
 
   class RNG {
     constructor(seed = 0x9e3779b1) { this.s = seed >>> 0; }
@@ -201,13 +275,50 @@
     }
   }
 
-  /* ── TT using flat typed arrays ── */
-  const TT_DEPTH  = 0;         // byte offsets into each slot (Uint32 view)
-  const TT_FLAG   = 1;
-  const TT_SCORE  = 2;
-  const TT_HASH   = 3;
-  const TT_BEST   = 4;         // best-move encoded as uint32
-  const TT_WORDS  = 5;         // words per slot
+  /**
+   * 64-bit hash stored as { lo: uint32, hi: uint32 }
+   * XOR operations on both halves.
+   */
+  function hashXor(a, b) {
+    return { lo: (a.lo ^ b.lo) >>> 0, hi: (a.hi ^ b.hi) >>> 0 };
+  }
+  function hashEq(a, b) { return a.lo === b.lo && a.hi === b.hi; }
+  const HASH_ZERO = { lo: 0, hi: 0 };
+
+  function initZobrist() {
+    const rng = new RNG(0x12345678);
+    const next64 = () => ({ lo: rng.next(), hi: rng.next() });
+
+    const piece = Array.from({ length: 16 }, () => {
+      const a = new Array(128);
+      for (let sq = 0; sq < 128; sq++) a[sq] = onBoard(sq) ? next64() : HASH_ZERO;
+      return a;
+    });
+    const side = next64();
+    const castle = new Array(16);
+    for (let i = 0; i < 16; i++) castle[i] = next64();
+    const ep = new Array(128);
+    for (let i = 0; i < 128; i++) ep[i] = onBoard(i) ? next64() : HASH_ZERO;
+    return { piece, side, castle, ep };
+  }
+
+  /* ──────────────────────────────────────────────── */
+  /* ── Transposition Table with 64-bit keys        ── */
+  /* ──────────────────────────────────────────────── */
+
+  /*
+    Each TT entry = 7 Int32 words:
+      [0] hash_lo  [1] hash_hi  [2] depth  [3] flag  [4] score  [5] best_lo  [6] best_hi(unused, reserved)
+    We pack bestmove into word 5 only (32 bits is enough for from|to|promo|flags).
+    Word 6 reserved for future.
+  */
+  const TT_HASHLO = 0;
+  const TT_HASHHI = 1;
+  const TT_DEPTH  = 2;
+  const TT_FLAG   = 3;
+  const TT_SCORE  = 4;
+  const TT_BEST   = 5;
+  const TT_WORDS  = 6;
 
   function ttSlotsFromMb(mb) {
     const clamped = Math.max(MIN_HASH_MB, Math.min(MAX_HASH_MB, mb | 0));
@@ -219,9 +330,7 @@
   }
 
   class TranspositionTable {
-    constructor(hashMb = DEFAULT_HASH_MB) {
-      this.resize(hashMb);
-    }
+    constructor(hashMb = DEFAULT_HASH_MB) { this.resize(hashMb); }
 
     resize(hashMb) {
       this.size = ttSlotsFromMb(hashMb);
@@ -231,85 +340,77 @@
       this.epoch = 1;
     }
 
-    clear() {
-      this.data.fill(0);
-      this.ages.fill(0);
-      this.epoch = 1;
-    }
+    clear() { this.data.fill(0); this.ages.fill(0); this.epoch = 1; }
 
     nextEpoch() {
       this.epoch = (this.epoch + 1) & 0xffff;
       if (this.epoch === 0) this.epoch = 1;
     }
 
-    _idx(hash) { return ((hash >>> 0) & this.mask) * TT_WORDS; }
+    _slot(hash) { return (hash.lo & this.mask); }
+    _idx(hash)  { return this._slot(hash) * TT_WORDS; }
+
+    _keysMatch(i, hash) {
+      return this.data[i + TT_HASHLO] === (hash.lo | 0) &&
+             this.data[i + TT_HASHHI] === (hash.hi | 0);
+    }
 
     probe(hash, depth, alpha, beta) {
       const i = this._idx(hash);
-      if (this.data[i + TT_HASH] !== ((hash >>> 0) | 0)) return null;
+      if (!this._keysMatch(i, hash)) return null;
       if (this.data[i + TT_DEPTH] < depth) return null;
       const score = this.data[i + TT_SCORE];
       const flag  = this.data[i + TT_FLAG];
-      if (flag === 0)  return score;              // exact
-      if (flag === -1 && score <= alpha) return score; // upper
-      if (flag === 1  && score >= beta)  return score; // lower
+      if (flag === 0)  return score;
+      if (flag === -1 && score <= alpha) return score;
+      if (flag === 1  && score >= beta)  return score;
       return null;
     }
 
     getBestMove(hash) {
       const i = this._idx(hash);
-      if (this.data[i + TT_HASH] !== ((hash >>> 0) | 0)) return 0;
+      if (!this._keysMatch(i, hash)) return 0;
       return this.data[i + TT_BEST];
     }
 
     store(hash, depth, score, flag, bestEncoded) {
       const i = this._idx(hash);
-      const slot = (i / TT_WORDS) | 0;
-      const key = (hash >>> 0) | 0;
-      const oldKey = this.data[i + TT_HASH];
+      const slot = this._slot(hash);
+      const oldMatch = this._keysMatch(i, hash);
       const oldDepth = this.data[i + TT_DEPTH];
-      const oldFlag = this.data[i + TT_FLAG];
-      const age = oldKey ? ((this.epoch - this.ages[slot]) & 0xffff) : 0xffff;
+      const oldFlag  = this.data[i + TT_FLAG];
+      const age = this.data[i + TT_HASHLO] || this.data[i + TT_HASHHI]
+        ? ((this.epoch - this.ages[slot]) & 0xffff) : 0xffff;
 
-      // Depth-preferred replacement with aging:
-      // keep deeper entries if they are recent, but allow stale replacement.
-      if (oldKey !== 0 && oldDepth > depth && age <= 1) {
-        return;
-      }
-      if (oldKey !== 0 && oldDepth > depth + 2 && age <= 4) {
-        return;
-      }
+      if (!oldMatch && oldDepth > depth && age <= 1) return;
+      if (!oldMatch && oldDepth > depth + 2 && age <= 4) return;
+      if (oldMatch && oldDepth === depth && oldFlag === 0 && flag !== 0 && age <= 2) return;
 
-      // If same depth, keep exact entries over bounds.
-      if (oldKey !== 0 && oldDepth === depth) {
-        if (oldFlag === 0 && flag !== 0 && age <= 2) return;
-      }
+      const best = bestEncoded
+        ? (bestEncoded | 0)
+        : (oldMatch ? this.data[i + TT_BEST] : 0);
 
-      // Preserve previous best move when a bound update has no move.
-      const best = bestEncoded ? (bestEncoded | 0) : (oldKey === key ? this.data[i + TT_BEST] : 0);
-
-      this.data[i + TT_HASH]  = key;
-      this.data[i + TT_DEPTH] = depth;
-      this.data[i + TT_SCORE] = score;
-      this.data[i + TT_FLAG]  = flag;
-      this.data[i + TT_BEST]  = best;
+      this.data[i + TT_HASHLO] = hash.lo | 0;
+      this.data[i + TT_HASHHI] = hash.hi | 0;
+      this.data[i + TT_DEPTH]  = depth;
+      this.data[i + TT_SCORE]  = score;
+      this.data[i + TT_FLAG]   = flag;
+      this.data[i + TT_BEST]   = best;
       this.ages[slot] = this.epoch;
     }
 
     hashfull() {
-      // UCI hashfull scale: 0..1000. Sample up to 1024 slots for speed.
       const sample = Math.min(1024, this.size);
       if (!sample) return 0;
       const step = Math.max(1, (this.size / sample) | 0);
-      let used = 0;
-      let seen = 0;
+      let used = 0, seen = 0;
       for (let slot = 0; slot < this.size && seen < sample; slot += step, seen++) {
-        if (this.data[slot * TT_WORDS + TT_HASH] !== 0) used++;
+        const i = slot * TT_WORDS;
+        if (this.data[i + TT_HASHLO] || this.data[i + TT_HASHHI]) used++;
       }
       return Math.max(0, Math.min(1000, Math.floor((used * 1000) / Math.max(1, seen))));
     }
 
-    /* Encode / decode a move as a single int32 for TT storage */
     static encodeMove(m) {
       if (!m) return 0;
       return (m.from) | (m.to << 8) | ((m.promo || 0) << 16) | ((m.flags || 0) << 24);
@@ -317,20 +418,20 @@
     static decodeMove(v) {
       if (!v) return null;
       return {
-        from:    v & 0xff,
-        to:     (v >>> 8)  & 0xff,
-        promo:  (v >>> 16) & 0xff,
-        flags:  (v >>> 24) & 0xff,
-        piece: EMPTY, capture: EMPTY, // filled in by findMoveByEncoded
+        from:  v & 0xff,
+        to:   (v >>> 8)  & 0xff,
+        promo:(v >>> 16) & 0xff,
+        flags:(v >>> 24) & 0xff,
+        piece:EMPTY, capture:EMPTY,
       };
     }
   }
 
-  /* ────────────────────────────────────────────────────────── */
+  /* ──────────────────────────────────────────────── */
+  /* ── Pre-computed square mappings                ── */
+  /* ──────────────────────────────────────────────── */
 
-  function sqToUci(sq) {
-    return FILES[sq & 7] + ((sq >> 4) + 1);
-  }
+  function sqToUci(sq) { return FILES[sq & 7] + ((sq >> 4) + 1); }
   function uciToSq(uci) {
     if (!uci || uci.length < 2) return -1;
     const f = FILES.indexOf(uci[0]);
@@ -339,16 +440,206 @@
     return (r << 4) | f;
   }
 
-  /* Pre-compute common squares */
   const SQ = {};
   ['a1','b1','c1','d1','e1','f1','g1','h1',
    'a8','b8','c8','d8','e8','f8','g8','h8'].forEach(n => { SQ[n] = uciToSq(n); });
 
-  /* ────────────────────────────────────────────────────────── */
+  /* 0x88 square -> 64 index */
+  function sq128To64(sq) { return ((sq >> 4) << 3) | (sq & 7); }
+  function mirror64(i)   { return ((7 - (i >> 3)) << 3) | (i & 7); }
+
+  /* ──────────────────────────────────────────────── */
+  /* ── Move Pool (avoid GC pressure)              ── */
+  /* ──────────────────────────────────────────────── */
+
+  class MovePool {
+    constructor(capacity = 4096) {
+      this.cap = capacity;
+      this.from    = new Uint8Array(capacity);
+      this.to      = new Uint8Array(capacity);
+      this.piece   = new Uint8Array(capacity);
+      this.capture = new Uint8Array(capacity);
+      this.promo   = new Uint8Array(capacity);
+      this.flags   = new Uint8Array(capacity);
+      this.score   = new Int32Array(capacity);
+      this.see     = new Int16Array(capacity);
+      this.size = 0;
+    }
+
+    reset() { this.size = 0; }
+
+    add(from, to, piece, capture, promo, flags) {
+      const i = this.size;
+      if (i >= this.cap) return i; // safety
+      this.from[i]    = from;
+      this.to[i]      = to;
+      this.piece[i]   = piece;
+      this.capture[i] = capture;
+      this.promo[i]   = promo;
+      this.flags[i]   = flags;
+      this.score[i]   = 0;
+      this.see[i]     = 0;
+      this.size++;
+      return i;
+    }
+
+    swap(a, b) {
+      if (a === b) return;
+      let t;
+      t = this.from[a];    this.from[a]    = this.from[b];    this.from[b]    = t;
+      t = this.to[a];      this.to[a]      = this.to[b];      this.to[b]      = t;
+      t = this.piece[a];   this.piece[a]   = this.piece[b];   this.piece[b]   = t;
+      t = this.capture[a]; this.capture[a] = this.capture[b]; this.capture[b] = t;
+      t = this.promo[a];   this.promo[a]   = this.promo[b];   this.promo[b]   = t;
+      t = this.flags[a];   this.flags[a]   = this.flags[b];   this.flags[b]   = t;
+      t = this.score[a];   this.score[a]   = this.score[b];   this.score[b]   = t;
+      t = this.see[a];     this.see[a]     = this.see[b];     this.see[b]     = t;
+    }
+
+    getObj(i) {
+      return {
+        from:    this.from[i],
+        to:      this.to[i],
+        piece:   this.piece[i],
+        capture: this.capture[i],
+        promo:   this.promo[i],
+        flags:   this.flags[i],
+        _score:  this.score[i],
+        _see:    this.see[i],
+      };
+    }
+
+    encode(i) {
+      return (this.from[i]) | (this.to[i] << 8) | (this.promo[i] << 16) | (this.flags[i] << 24);
+    }
+  }
+
+  /* ──────────────────────────────────────────────── */
+  /* ── Piece List                                  ── */
+  /* ──────────────────────────────────────────────── */
+
+  class PieceList {
+    constructor() {
+      /* pieces[color] = array of { sq, piece } */
+      this.pieces = [[], []];
+      /* quick lookup: sqIndex[sq] = index into pieces[color] or -1 */
+      this.sqIndex = new Int16Array(128).fill(-1);
+    }
+
+    clear() {
+      this.pieces[WHITE].length = 0;
+      this.pieces[BLACK].length = 0;
+      this.sqIndex.fill(-1);
+    }
+
+    add(sq, piece) {
+      const color = colorOf(piece);
+      const idx = this.pieces[color].length;
+      this.pieces[color].push({ sq, piece });
+      this.sqIndex[sq] = idx;
+    }
+
+    remove(sq, color) {
+      const idx = this.sqIndex[sq];
+      if (idx < 0) return;
+      const list = this.pieces[color];
+      const last = list.length - 1;
+      if (idx !== last) {
+        list[idx] = list[last];
+        this.sqIndex[list[idx].sq] = idx;
+      }
+      list.length = last;
+      this.sqIndex[sq] = -1;
+    }
+
+    move(fromSq, toSq, newPiece) {
+      const idx = this.sqIndex[fromSq];
+      if (idx < 0) return;
+      const color = colorOf(newPiece);
+      const entry = this.pieces[color][idx];
+      entry.sq = toSq;
+      entry.piece = newPiece;
+      this.sqIndex[fromSq] = -1;
+      this.sqIndex[toSq] = idx;
+    }
+
+    forEach(color, fn) {
+      const list = this.pieces[color];
+      for (let i = 0, len = list.length; i < len; i++) {
+        fn(list[i].sq, list[i].piece);
+      }
+    }
+
+    count(color, pieceType) {
+      let c = 0;
+      const list = this.pieces[color];
+      for (let i = 0, len = list.length; i < len; i++) {
+        if ((list[i].piece & 7) === pieceType) c++;
+      }
+      return c;
+    }
+
+    hasPieceType(color, pt) {
+      const list = this.pieces[color];
+      for (let i = 0, len = list.length; i < len; i++) {
+        if ((list[i].piece & 7) === pt) return true;
+      }
+      return false;
+    }
+
+    hasNonPawnMaterial(color) {
+      const list = this.pieces[color];
+      for (let i = 0, len = list.length; i < len; i++) {
+        const pt = list[i].piece & 7;
+        if (pt >= 2 && pt <= 5) return true;
+      }
+      return false;
+    }
+  }
+
+  /* ──────────────────────────────────────────────── */
+  /* ── Pawn Hash Table                             ── */
+  /* ──────────────────────────────────────────────── */
+
+  class PawnHashTable {
+    constructor(sizeBits = 12) {
+      this.size = 1 << sizeBits;
+      this.mask = this.size - 1;
+      this.keys_lo = new Int32Array(this.size);
+      this.keys_hi = new Int32Array(this.size);
+      this.mg = new Int16Array(this.size);
+      this.eg = new Int16Array(this.size);
+      this.valid = new Uint8Array(this.size);
+    }
+
+    clear() {
+      this.valid.fill(0);
+    }
+
+    probe(hash) {
+      const idx = hash.lo & this.mask;
+      if (!this.valid[idx]) return null;
+      if (this.keys_lo[idx] !== (hash.lo | 0) || this.keys_hi[idx] !== (hash.hi | 0)) return null;
+      return { mg: this.mg[idx], eg: this.eg[idx] };
+    }
+
+    store(hash, mg, eg) {
+      const idx = hash.lo & this.mask;
+      this.keys_lo[idx] = hash.lo | 0;
+      this.keys_hi[idx] = hash.hi | 0;
+      this.mg[idx] = mg;
+      this.eg[idx] = eg;
+      this.valid[idx] = 1;
+    }
+  }
+
+  /* ──────────────────────────────────────────────── */
+  /* ── Engine                                      ── */
+  /* ──────────────────────────────────────────────── */
 
   class Engine {
     constructor() {
-      this.name   = 'Bintang Toba 2.0';
+      this.name   = 'Bintang Toba 2.1';
       this.author = 'Bintang Team';
 
       this.options = {
@@ -387,49 +678,65 @@
       this.fullmove = 1;
 
       /* King square cache */
-      this.kingPos  = [SQ['e1'], SQ['e8']];
+      this.kingPos = [-1, -1];
+
+      /* Piece list */
+      this.plist = new PieceList();
 
       /* History stack */
       this.history  = [];
       this.hashStack = [];
 
-      /* Killer moves [ply][0..1] */
-      this.killers  = Array.from({length: 128}, () => [0, 0]);
+      /* Killers [ply][0..1] */
+      this.killers = Array.from({ length: MAX_PLY }, () => [0, 0]);
 
       /* History heuristic [piece][to] */
-      this.histTable = new Int32Array(15 * 128);
+      this.histTable = new Int32Array(16 * 128);
 
-      /* Continuation history [prevMoveIndex][curMoveIndex] */
-      this.contHist = new Int16Array((15 * 128) * (15 * 128));
+      /* Continuation history [prevIndex][curIndex] — use smaller tables */
+      this.contHistSize = 16 * 128; // 2048
+      this.contHist = new Int16Array(this.contHistSize * this.contHistSize);
 
-      /* Static eval trace for improving/non-improving decisions */
-      this.evalTrace = new Int32Array(256);
+      /* Static eval trace for improving detection */
+      this.evalTrace = new Int32Array(MAX_PLY + 8);
 
       /* Zobrist */
-      this.Z = this._initZobrist();
+      this.Z = initZobrist();
+
+      /* Pawn Zobrist (separate keys for pawn hash) */
+      this.pawnZ = this._initPawnZobrist();
 
       /* Transposition table */
       this.tt = new TranspositionTable(this.options.Hash);
 
-      this.bestMove  = null;
+      /* Pawn hash table */
+      this.pawnHash = new PawnHashTable(12);
+
+      /* Move pool for generation (reusable) */
+      this.movePool = new MovePool(4096);
+
+      /* SEE occupancy buffer (reusable) */
+      this.seeOcc = new Uint8Array(128);
+
+      this.bestMove = null;
+      this.hash = HASH_ZERO;
+      this.pHash = HASH_ZERO;
 
       this.setFen(START_FEN);
     }
 
-    /* ── Zobrist ── */
-    _initZobrist() {
-      const rng   = new RNG(0x12345678);
-      const piece = Array.from({length: 15}, () => {
-        const a = new Uint32Array(128);
-        for (let sq = 0; sq < 128; sq++) a[sq] = onBoard(sq) ? rng.next() : 0;
-        return a;
-      });
-      const side   = rng.next();
-      const castle = new Uint32Array(16);
-      for (let i = 0; i < 16; i++) castle[i] = rng.next();
-      const ep = new Uint32Array(128);
-      for (let i = 0; i < 128; i++) ep[i] = onBoard(i) ? rng.next() : 0;
-      return { piece, side, castle, ep };
+    /* ── Pawn-only Zobrist ── */
+    _initPawnZobrist() {
+      const rng = new RNG(0xABCDEF01);
+      const next64 = () => ({ lo: rng.next(), hi: rng.next() });
+      const table = {};
+      table[WP] = new Array(128);
+      table[BP] = new Array(128);
+      for (let sq = 0; sq < 128; sq++) {
+        table[WP][sq] = onBoard(sq) ? next64() : HASH_ZERO;
+        table[BP][sq] = onBoard(sq) ? next64() : HASH_ZERO;
+      }
+      return table;
     }
 
     /* ── Communication ── */
@@ -442,6 +749,7 @@
       this.halfmove = 0; this.fullmove = 1;
       this.history.length = 0; this.hashStack.length = 0;
       this.kingPos[WHITE] = -1; this.kingPos[BLACK] = -1;
+      this.plist.clear();
     }
 
     setFen(fen) {
@@ -458,6 +766,7 @@
           this.board[sq] = p;
           if (p === WK) this.kingPos[WHITE] = sq;
           if (p === BK) this.kingPos[BLACK] = sq;
+          if (p) this.plist.add(sq, p);
           f++;
         }
         r--;
@@ -465,15 +774,19 @@
       this.side     = parts[1] === 'b' ? BLACK : WHITE;
       const cstr    = parts[2] || '-';
       this.castle   = 0;
-      if (cstr.includes('K')) this.castle |= 1;
-      if (cstr.includes('Q')) this.castle |= 2;
-      if (cstr.includes('k')) this.castle |= 4;
-      if (cstr.includes('q')) this.castle |= 8;
+
+      /* Validate castle rights against piece placement */
+      if (cstr.includes('K') && this.board[SQ['e1']] === WK && this.board[SQ['h1']] === WR) this.castle |= 1;
+      if (cstr.includes('Q') && this.board[SQ['e1']] === WK && this.board[SQ['a1']] === WR) this.castle |= 2;
+      if (cstr.includes('k') && this.board[SQ['e8']] === BK && this.board[SQ['h8']] === BR) this.castle |= 4;
+      if (cstr.includes('q') && this.board[SQ['e8']] === BK && this.board[SQ['a8']] === BR) this.castle |= 8;
+
       this.ep       = (parts[3] && parts[3] !== '-') ? uciToSq(parts[3]) : -1;
       this.halfmove = +(parts[4] || 0);
       this.fullmove = +(parts[5] || 1);
       this._recomputeHash();
-      this.hashStack.push(this.hash);
+      this._recomputePawnHash();
+      this.hashStack.push({ lo: this.hash.lo, hi: this.hash.hi });
     }
 
     getFen() {
@@ -495,24 +808,33 @@
       return `${rows.join('/')} ${this.side===WHITE?'w':'b'} ${c} ${this.ep===-1?'-':sqToUci(this.ep)} ${this.halfmove} ${this.fullmove}`;
     }
 
-    /* ── Incremental Zobrist ── */
+    /* ── Hash computation ── */
     _recomputeHash() {
-      let h = 0;
+      let h = HASH_ZERO;
       for (let sq = 0; sq < 128; sq++) {
         if (!onBoard(sq)) { sq += 7; continue; }
         const p = this.board[sq];
-        if (p) h ^= this.Z.piece[p][sq];
+        if (p) h = hashXor(h, this.Z.piece[p][sq]);
       }
-      h ^= this.Z.castle[this.castle];
-      if (this.ep !== -1) h ^= this.Z.ep[this.ep];
-      if (this.side === BLACK) h ^= this.Z.side;
-      this.hash = h >>> 0;
+      h = hashXor(h, this.Z.castle[this.castle]);
+      if (this.ep !== -1) h = hashXor(h, this.Z.ep[this.ep]);
+      if (this.side === BLACK) h = hashXor(h, this.Z.side);
+      this.hash = h;
+    }
+
+    _recomputePawnHash() {
+      let h = HASH_ZERO;
+      for (let sq = 0; sq < 128; sq++) {
+        if (!onBoard(sq)) { sq += 7; continue; }
+        const p = this.board[sq];
+        if (p === WP || p === BP) h = hashXor(h, this.pawnZ[p][sq]);
+      }
+      this.pHash = h;
     }
 
     /* ── Attack detection ── */
     isAttacked(sq, byColor) {
       const board = this.board;
-      /* Pawn */
       if (byColor === WHITE) {
         if (onBoard(sq-15) && board[sq-15] === WP) return true;
         if (onBoard(sq-17) && board[sq-17] === WP) return true;
@@ -520,34 +842,33 @@
         if (onBoard(sq+15) && board[sq+15] === BP) return true;
         if (onBoard(sq+17) && board[sq+17] === BP) return true;
       }
-      /* Knight */
       const kn = byColor === WHITE ? WN : BN;
-      for (const d of KNIGHT_DIR) {
-        const to = sq + d;
+      for (let di = 0; di < 8; di++) {
+        const to = sq + KNIGHT_DIR[di];
         if (onBoard(to) && board[to] === kn) return true;
       }
-      /* Sliders */
       const bi = byColor === WHITE ? WB : BB;
-      const ro = byColor === WHITE ? WR : BR;
       const qu = byColor === WHITE ? WQ : BQ;
-      for (const d of BISHOP_DIR) {
+      for (let di = 0; di < 4; di++) {
+        const d = BISHOP_DIR[di];
         let to = sq + d;
         while (onBoard(to)) {
           const p = board[to]; if (p) { if (p===bi||p===qu) return true; break; }
           to += d;
         }
       }
-      for (const d of ROOK_DIR) {
+      const ro = byColor === WHITE ? WR : BR;
+      for (let di = 0; di < 4; di++) {
+        const d = ROOK_DIR[di];
         let to = sq + d;
         while (onBoard(to)) {
           const p = board[to]; if (p) { if (p===ro||p===qu) return true; break; }
           to += d;
         }
       }
-      /* King */
       const ki = byColor === WHITE ? WK : BK;
-      for (const d of KING_DIR) {
-        const to = sq + d;
+      for (let di = 0; di < 8; di++) {
+        const to = sq + KING_DIR[di];
         if (onBoard(to) && board[to] === ki) return true;
       }
       return false;
@@ -558,11 +879,11 @@
     isSquareAttackedByPawn(sq, byColor) {
       const board = this.board;
       if (byColor === WHITE) {
-        return (onBoard(sq - 15) && board[sq - 15] === WP) ||
-               (onBoard(sq - 17) && board[sq - 17] === WP);
+        return (onBoard(sq-15) && board[sq-15] === WP) ||
+               (onBoard(sq-17) && board[sq-17] === WP);
       }
-      return (onBoard(sq + 15) && board[sq + 15] === BP) ||
-             (onBoard(sq + 17) && board[sq + 17] === BP);
+      return (onBoard(sq+15) && board[sq+15] === BP) ||
+             (onBoard(sq+17) && board[sq+17] === BP);
     }
 
     /* ── Make / Undo ── */
@@ -570,65 +891,78 @@
       const oldCastle = this.castle;
       const oldEp     = this.ep;
       const oldHash   = this.hash;
+      const oldPHash  = this.pHash;
 
-      /* Save state */
       this.history.push({
         from: m.from, to: m.to, piece: m.piece, capture: m.capture,
         promo: m.promo, flags: m.flags,
         castle: oldCastle, ep: oldEp,
-        halfmove: this.halfmove,
-        fullmove: this.fullmove,
-        hash: oldHash,
-        kingW: this.kingPos[WHITE],
-        kingB: this.kingPos[BLACK],
+        halfmove: this.halfmove, fullmove: this.fullmove,
+        hash: oldHash, pHash: oldPHash,
+        kingW: this.kingPos[WHITE], kingB: this.kingPos[BLACK],
       });
 
-      /* Incremental hash: remove moving piece from source */
       let h = oldHash;
-      h ^= this.Z.piece[m.piece][m.from];
-      h ^= this.Z.castle[oldCastle];
-      if (oldEp !== -1) h ^= this.Z.ep[oldEp];
+      let ph = oldPHash;
+      h = hashXor(h, this.Z.piece[m.piece][m.from]);
+      h = hashXor(h, this.Z.castle[oldCastle]);
+      if (oldEp !== -1) h = hashXor(h, this.Z.ep[oldEp]);
 
-      /* Halfmove */
+      /* Pawn hash: remove pawn from source */
+      if (m.piece === WP || m.piece === BP) {
+        ph = hashXor(ph, this.pawnZ[m.piece][m.from]);
+      }
+
       this.halfmove++;
       if (m.piece === WP || m.piece === BP || m.capture) this.halfmove = 0;
 
-      /* Remove piece from source */
       this.board[m.from] = EMPTY;
+      this.plist.remove(m.from, colorOf(m.piece));
 
       /* Capture */
       if (m.capture && !(m.flags & FLAG_EP)) {
-        h ^= this.Z.piece[m.capture][m.to];
+        h = hashXor(h, this.Z.piece[m.capture][m.to]);
+        this.plist.remove(m.to, colorOf(m.capture));
+        if (m.capture === WP || m.capture === BP) {
+          ph = hashXor(ph, this.pawnZ[m.capture][m.to]);
+        }
       }
 
-      /* Place piece (or promotion) on destination */
       const placed = m.promo || m.piece;
       this.board[m.to] = placed;
-      h ^= this.Z.piece[placed][m.to];
+      h = hashXor(h, this.Z.piece[placed][m.to]);
+      this.plist.add(m.to, placed);
 
-      /* Update king cache */
+      /* Pawn hash: add pawn at destination (only if still a pawn) */
+      if (placed === WP || placed === BP) {
+        ph = hashXor(ph, this.pawnZ[placed][m.to]);
+      }
+
       if (m.piece === WK) this.kingPos[WHITE] = m.to;
       if (m.piece === BK) this.kingPos[BLACK] = m.to;
 
-      /* En passant capture */
       this.ep = -1;
       if (m.flags & FLAG_EP) {
+        /* Side that made the move is still this.side (not yet flipped) */
         const capSq = this.side === WHITE ? m.to - 16 : m.to + 16;
-        h ^= this.Z.piece[this.board[capSq]][capSq];
+        const epPawn = this.board[capSq];
+        h = hashXor(h, this.Z.piece[epPawn][capSq]);
+        ph = hashXor(ph, this.pawnZ[epPawn][capSq]);
+        this.plist.remove(capSq, colorOf(epPawn));
         this.board[capSq] = EMPTY;
       }
 
-      /* Castling rook move */
       if (m.flags & FLAG_CASTLE) {
         const [rs, rd] = this._castleRookSquares(m.to);
         const rook = this.board[rs];
-        h ^= this.Z.piece[rook][rs];
-        h ^= this.Z.piece[rook][rd];
+        h = hashXor(h, this.Z.piece[rook][rs]);
+        h = hashXor(h, this.Z.piece[rook][rd]);
+        this.plist.remove(rs, colorOf(rook));
         this.board[rd] = rook;
         this.board[rs] = EMPTY;
+        this.plist.add(rd, rook);
       }
 
-      /* Castle rights */
       if (m.piece === WK) this.castle &= ~3;
       if (m.piece === BK) this.castle &= ~12;
       if (m.from === SQ['a1'] || m.to === SQ['a1']) this.castle &= ~2;
@@ -636,27 +970,25 @@
       if (m.from === SQ['a8'] || m.to === SQ['a8']) this.castle &= ~8;
       if (m.from === SQ['h8'] || m.to === SQ['h8']) this.castle &= ~4;
 
-      /* New en passant square */
       if (m.piece === WP && m.to - m.from === 32) this.ep = m.from + 16;
       if (m.piece === BP && m.from - m.to === 32) this.ep = m.from - 16;
 
-      /* Finalize hash */
-      h ^= this.Z.castle[this.castle];
-      if (this.ep !== -1) h ^= this.Z.ep[this.ep];
-      h ^= this.Z.side;
-      this.hash = h >>> 0;
+      h = hashXor(h, this.Z.castle[this.castle]);
+      if (this.ep !== -1) h = hashXor(h, this.Z.ep[this.ep]);
+      h = hashXor(h, this.Z.side);
+      this.hash = h;
+      this.pHash = ph;
 
       if (this.side === BLACK) this.fullmove++;
       this.side = opponent(this.side);
-      this.hashStack.push(this.hash);
+      this.hashStack.push({ lo: this.hash.lo, hi: this.hash.hi });
     }
 
     _castleRookSquares(kingTo) {
-      /* returns [rookSrc, rookDest] */
       if (kingTo === SQ['g1']) return [SQ['h1'], SQ['f1']];
       if (kingTo === SQ['c1']) return [SQ['a1'], SQ['d1']];
       if (kingTo === SQ['g8']) return [SQ['h8'], SQ['f8']];
-      /* c8 */                  return [SQ['a8'], SQ['d8']];
+      return [SQ['a8'], SQ['d8']];
     }
 
     undoMove() {
@@ -670,22 +1002,38 @@
       this.halfmove = st.halfmove;
       this.fullmove = st.fullmove;
       this.hash     = st.hash;
+      this.pHash    = st.pHash;
       this.kingPos[WHITE] = st.kingW;
       this.kingPos[BLACK] = st.kingB;
 
-      this.board[st.from] = st.piece;
-      this.board[st.to]   = st.capture || EMPTY;
+      /* Remove placed piece from destination */
+      const placed = st.promo || st.piece;
+      this.plist.remove(st.to, colorOf(placed));
 
+      /* Restore piece at source */
+      this.board[st.from] = st.piece;
+      this.plist.add(st.from, st.piece);
+
+      /* Restore capture */
       if (st.flags & FLAG_EP) {
+        /* The side that made the move is now this.side (already flipped back) */
         const capSq = this.side === WHITE ? st.to - 16 : st.to + 16;
-        this.board[capSq] = this.side === WHITE ? BP : WP;
+        const epPawn = this.side === WHITE ? BP : WP;
+        this.board[capSq] = epPawn;
+        this.plist.add(capSq, epPawn);
         this.board[st.to] = EMPTY;
+      } else {
+        this.board[st.to] = st.capture || EMPTY;
+        if (st.capture) this.plist.add(st.to, st.capture);
       }
 
       if (st.flags & FLAG_CASTLE) {
         const [rs, rd] = this._castleRookSquares(st.to);
-        this.board[rs] = this.board[rd];
+        const rook = this.board[rd];
+        this.plist.remove(rd, colorOf(rook));
+        this.board[rs] = rook;
         this.board[rd] = EMPTY;
+        this.plist.add(rs, rook);
       }
     }
 
@@ -693,126 +1041,130 @@
     makeNullMove() {
       const oldEp = this.ep;
       this.history.push({
-        from:-1, to:-1, piece:0, capture:0, promo:0, flags:0,
+        from: -1, to: -1, piece: 0, capture: 0, promo: 0, flags: 0,
         castle: this.castle, ep: oldEp,
         halfmove: this.halfmove, fullmove: this.fullmove,
-        hash: this.hash,
+        hash: this.hash, pHash: this.pHash,
         kingW: this.kingPos[WHITE], kingB: this.kingPos[BLACK],
         isNull: true,
       });
       let h = this.hash;
-      if (oldEp !== -1) h ^= this.Z.ep[oldEp];
+      if (oldEp !== -1) h = hashXor(h, this.Z.ep[oldEp]);
       this.ep = -1;
-      h ^= this.Z.side;
-      this.hash = h >>> 0;
+      h = hashXor(h, this.Z.side);
+      this.hash = h;
       this.halfmove++;
       if (this.side === BLACK) this.fullmove++;
       this.side = opponent(this.side);
-      this.hashStack.push(this.hash);
+      this.hashStack.push({ lo: this.hash.lo, hi: this.hash.hi });
     }
 
     undoNullMove() { this.undoMove(); }
 
     /* ── Draw detection ── */
-    isDraw() {
+    /**
+     * Twofold repetition during search (standard heuristic).
+     * For root/game play, we require threefold (2 prior occurrences).
+     * The `forRoot` parameter controls this.
+     */
+    isDraw(forRoot = false) {
       if (this.halfmove >= 100) return true;
       const cur = this.hash;
       let reps = 0;
-      /* Walk back — stop early on captures/pawn moves (halfmove resets) */
+      const threshold = forRoot ? 2 : 1; // threefold at root, twofold in search
       const limit = Math.max(0, this.hashStack.length - this.halfmove - 1);
-      for (let i = this.hashStack.length - 1; i >= limit; i--) {
-        if (this.hashStack[i] === cur) { if (++reps >= 2) return true; }
+      /* Skip last entry (current position) */
+      for (let i = this.hashStack.length - 2; i >= limit; i--) {
+        if (hashEq(this.hashStack[i], cur)) {
+          if (++reps >= threshold) return true;
+        }
       }
       return false;
     }
 
     isInsufficientMaterial() {
-      let wn=0,wb=0,bn=0,bb=0;
-      for (let sq=0;sq<128;sq++) {
-        if (!onBoard(sq)){sq+=7;continue;}
-        const p=this.board[sq];
-        if (!p) continue;
-        if (p===WP||p===BP||p===WR||p===BR||p===WQ||p===BQ) return false;
-        if (p===WN) wn++;
-        if (p===WB) wb++;
-        if (p===BN) bn++;
-        if (p===BB) bb++;
-      }
-      if (wn+wb+bn+bb===0) return true;
-      if (wn+wb<=1&&bn+bb===0) return true;
-      if (bn+bb<=1&&wn+wb===0) return true;
+      let wn = 0, wb = 0, bn = 0, bb = 0;
+      this.plist.forEach(WHITE, (sq, p) => {
+        const pt = p & 7;
+        if (pt === 1 || pt === 4 || pt === 5) { wn = 99; return; }
+        if (pt === 2) wn++;
+        if (pt === 3) wb++;
+      });
+      if (wn >= 2 || wb >= 2) return false; // enough material for white
+      this.plist.forEach(BLACK, (sq, p) => {
+        const pt = p & 7;
+        if (pt === 1 || pt === 4 || pt === 5) { bn = 99; return; }
+        if (pt === 2) bn++;
+        if (pt === 3) bb++;
+      });
+      if (wn + wb + bn + bb === 0) return true;
+      if (wn + wb <= 1 && bn + bb === 0) return true;
+      if (bn + bb <= 1 && wn + wb === 0) return true;
       return false;
     }
 
     /* ── Move generation ── */
     genMoves(capturesOnly = false) {
-      const moves = [];
+      const pool = this.movePool;
+      pool.reset();
       const us    = this.side;
       const board = this.board;
 
-      for (let sq = 0; sq < 128; sq++) {
-        if (!onBoard(sq)) { sq += 7; continue; }
-        const p = board[sq];
-        if (!p) continue;
-        if (us === WHITE ? !isWhite(p) : !isBlack(p)) continue;
-
-        if (p === WP || p === BP) {
-          this._genPawnMoves(sq, p, us, moves, capturesOnly);
-          continue;
+      this.plist.forEach(us, (sq, p) => {
+        const pt = p & 7;
+        if (pt === 1) { this._genPawnMoves(sq, p, us, pool, capturesOnly); return; }
+        if (pt === 2) { this._genKnightMoves(sq, p, us, pool, capturesOnly); return; }
+        if (pt === 3) { this._addSlider(sq, p, us, BISHOP_DIR, pool, capturesOnly); return; }
+        if (pt === 4) { this._addSlider(sq, p, us, ROOK_DIR, pool, capturesOnly); return; }
+        if (pt === 5) {
+          this._addSlider(sq, p, us, BISHOP_DIR, pool, capturesOnly);
+          this._addSlider(sq, p, us, ROOK_DIR, pool, capturesOnly);
+          return;
         }
-        if (p === WN || p === BN) {
-          for (const d of KNIGHT_DIR) {
-            const to = sq + d;
-            if (!onBoard(to)) continue;
-            const tp = board[to];
-            if (!tp) { if (!capturesOnly) moves.push(this._mk(sq,to,p,EMPTY,0,0)); }
-            else if (colorOf(tp) !== us) moves.push(this._mk(sq,to,p,tp,0,FLAG_CAPTURE));
-          }
-          continue;
-        }
-        if (p === WB || p === BB) { this._addSlider(sq,p,us,BISHOP_DIR,moves,capturesOnly); continue; }
-        if (p === WR || p === BR) { this._addSlider(sq,p,us,ROOK_DIR,  moves,capturesOnly); continue; }
-        if (p === WQ || p === BQ) {
-          this._addSlider(sq,p,us,BISHOP_DIR,moves,capturesOnly);
-          this._addSlider(sq,p,us,ROOK_DIR,  moves,capturesOnly);
-          continue;
-        }
-        if (p === WK || p === BK) { this._genKingMoves(sq,p,us,moves,capturesOnly); }
-      }
+        if (pt === 6) { this._genKingMoves(sq, p, us, pool, capturesOnly); }
+      });
 
       /* Legal filter */
-      const legal = [];
-      for (const m of moves) {
+      const legalMoves = [];
+      for (let i = 0; i < pool.size; i++) {
+        const m = pool.getObj(i);
         this.makeMove(m);
-        if (!this.inCheck(us)) legal.push(m);
+        if (!this.inCheck(us)) legalMoves.push(m);
         this.undoMove();
       }
-      return legal;
+      return legalMoves;
     }
 
-    _mk(from,to,piece,capture,promo,flags) {
-      return {from,to,piece,capture,promo,flags};
+    _genKnightMoves(sq, p, us, pool, capturesOnly) {
+      const board = this.board;
+      for (let di = 0; di < 8; di++) {
+        const to = sq + KNIGHT_DIR[di];
+        if (!onBoard(to)) continue;
+        const tp = board[to];
+        if (!tp) { if (!capturesOnly) pool.add(sq, to, p, EMPTY, 0, 0); }
+        else if (colorOf(tp) !== us) pool.add(sq, to, p, tp, 0, FLAG_CAPTURE);
+      }
     }
 
-    _genPawnMoves(sq,p,us,moves,capturesOnly) {
+    _genPawnMoves(sq, p, us, pool, capturesOnly) {
       const board   = this.board;
-      const up      = p===WP ? 16 : -16;
+      const up      = p === WP ? 16 : -16;
       const rank    = sq >> 4;
-      const sRank   = p===WP ? 1 : 6;
-      const pRank   = p===WP ? 6 : 1;
-      const promos  = p===WP ? [WQ,WR,WB,WN] : [BQ,BR,BB,BN];
-      const capDirs = p===WP ? [15,17] : [-15,-17];
+      const sRank   = p === WP ? 1 : 6;
+      const pRank   = p === WP ? 6 : 1;
+      const promos  = p === WP ? [WQ, WR, WB, WN] : [BQ, BR, BB, BN];
+      const capDirs = p === WP ? [15, 17] : [-15, -17];
 
       if (!capturesOnly) {
         const one = sq + up;
         if (onBoard(one) && !board[one]) {
           if (rank === pRank) {
-            for (const pr of promos) moves.push(this._mk(sq,one,p,EMPTY,pr,FLAG_PROMO));
+            for (const pr of promos) pool.add(sq, one, p, EMPTY, pr, FLAG_PROMO);
           } else {
-            moves.push(this._mk(sq,one,p,EMPTY,0,0));
+            pool.add(sq, one, p, EMPTY, 0, 0);
             if (rank === sRank) {
               const two = sq + up + up;
-              if (!board[two]) moves.push(this._mk(sq,two,p,EMPTY,0,0));
+              if (!board[two]) pool.add(sq, two, p, EMPTY, 0, 0);
             }
           }
         }
@@ -824,28 +1176,29 @@
         const tp = board[to];
         if (tp && colorOf(tp) !== us) {
           if (rank === pRank) {
-            for (const pr of promos) moves.push(this._mk(sq,to,p,tp,pr,FLAG_CAPTURE|FLAG_PROMO));
+            for (const pr of promos) pool.add(sq, to, p, tp, pr, FLAG_CAPTURE | FLAG_PROMO);
           } else {
-            moves.push(this._mk(sq,to,p,tp,0,FLAG_CAPTURE));
+            pool.add(sq, to, p, tp, 0, FLAG_CAPTURE);
           }
         }
         if (to === this.ep) {
-          const epCap = p===WP ? BP : WP;
-          moves.push(this._mk(sq,to,p,epCap,0,FLAG_CAPTURE|FLAG_EP));
+          const epCap = p === WP ? BP : WP;
+          pool.add(sq, to, p, epCap, 0, FLAG_CAPTURE | FLAG_EP);
         }
       }
     }
 
-    _addSlider(sq,p,us,dirs,moves,capturesOnly) {
+    _addSlider(sq, p, us, dirs, pool, capturesOnly) {
       const board = this.board;
-      for (const d of dirs) {
+      for (let di = 0, len = dirs.length; di < len; di++) {
+        const d = dirs[di];
         let to = sq + d;
         while (onBoard(to)) {
           const tp = board[to];
           if (!tp) {
-            if (!capturesOnly) moves.push(this._mk(sq,to,p,EMPTY,0,0));
+            if (!capturesOnly) pool.add(sq, to, p, EMPTY, 0, 0);
           } else {
-            if (colorOf(tp) !== us) moves.push(this._mk(sq,to,p,tp,0,FLAG_CAPTURE));
+            if (colorOf(tp) !== us) pool.add(sq, to, p, tp, 0, FLAG_CAPTURE);
             break;
           }
           to += d;
@@ -853,35 +1206,38 @@
       }
     }
 
-    _genKingMoves(sq,p,us,moves,capturesOnly) {
+    _genKingMoves(sq, p, us, pool, capturesOnly) {
       const board = this.board;
       const opp   = opponent(us);
-      for (const d of KING_DIR) {
-        const to = sq + d;
+      for (let di = 0; di < 8; di++) {
+        const to = sq + KING_DIR[di];
         if (!onBoard(to)) continue;
         const tp = board[to];
-        if (!tp) { if (!capturesOnly) moves.push(this._mk(sq,to,p,EMPTY,0,0)); }
-        else if (colorOf(tp) !== us) moves.push(this._mk(sq,to,p,tp,0,FLAG_CAPTURE));
+        if (!tp) { if (!capturesOnly) pool.add(sq, to, p, EMPTY, 0, 0); }
+        else if (colorOf(tp) !== us) pool.add(sq, to, p, tp, 0, FLAG_CAPTURE);
       }
       if (capturesOnly) return;
-      /* Castling */
       const inChk = this.inCheck(us);
       if (!inChk) {
         if (us === WHITE && sq === SQ['e1']) {
-          if ((this.castle&1) && board[SQ['h1']] === WR && !board[SQ['f1']]&&!board[SQ['g1']]&&
-              !this.isAttacked(SQ['f1'],opp)&&!this.isAttacked(SQ['g1'],opp))
-            moves.push(this._mk(sq,SQ['g1'],p,EMPTY,0,FLAG_CASTLE));
-          if ((this.castle&2) && board[SQ['a1']] === WR && !board[SQ['d1']]&&!board[SQ['c1']]&&!board[SQ['b1']]&&
-              !this.isAttacked(SQ['d1'],opp)&&!this.isAttacked(SQ['c1'],opp))
-            moves.push(this._mk(sq,SQ['c1'],p,EMPTY,0,FLAG_CASTLE));
+          if ((this.castle & 1) && board[SQ['h1']] === WR &&
+              !board[SQ['f1']] && !board[SQ['g1']] &&
+              !this.isAttacked(SQ['f1'], opp) && !this.isAttacked(SQ['g1'], opp))
+            pool.add(sq, SQ['g1'], p, EMPTY, 0, FLAG_CASTLE);
+          if ((this.castle & 2) && board[SQ['a1']] === WR &&
+              !board[SQ['d1']] && !board[SQ['c1']] && !board[SQ['b1']] &&
+              !this.isAttacked(SQ['d1'], opp) && !this.isAttacked(SQ['c1'], opp))
+            pool.add(sq, SQ['c1'], p, EMPTY, 0, FLAG_CASTLE);
         }
         if (us === BLACK && sq === SQ['e8']) {
-          if ((this.castle&4) && board[SQ['h8']] === BR && !board[SQ['f8']]&&!board[SQ['g8']]&&
-              !this.isAttacked(SQ['f8'],opp)&&!this.isAttacked(SQ['g8'],opp))
-            moves.push(this._mk(sq,SQ['g8'],p,EMPTY,0,FLAG_CASTLE));
-          if ((this.castle&8) && board[SQ['a8']] === BR && !board[SQ['d8']]&&!board[SQ['c8']]&&!board[SQ['b8']]&&
-              !this.isAttacked(SQ['d8'],opp)&&!this.isAttacked(SQ['c8'],opp))
-            moves.push(this._mk(sq,SQ['c8'],p,EMPTY,0,FLAG_CASTLE));
+          if ((this.castle & 4) && board[SQ['h8']] === BR &&
+              !board[SQ['f8']] && !board[SQ['g8']] &&
+              !this.isAttacked(SQ['f8'], opp) && !this.isAttacked(SQ['g8'], opp))
+            pool.add(sq, SQ['g8'], p, EMPTY, 0, FLAG_CASTLE);
+          if ((this.castle & 8) && board[SQ['a8']] === BR &&
+              !board[SQ['d8']] && !board[SQ['c8']] && !board[SQ['b8']] &&
+              !this.isAttacked(SQ['d8'], opp) && !this.isAttacked(SQ['c8'], opp))
+            pool.add(sq, SQ['c8'], p, EMPTY, 0, FLAG_CASTLE);
         }
       }
     }
@@ -890,7 +1246,7 @@
     moveToUci(m) {
       if (!m) return '0000';
       const base = sqToUci(m.from) + sqToUci(m.to);
-      return (m.flags & FLAG_PROMO) ? base + (PIECE_CH[m.promo]||'q').toLowerCase() : base;
+      return (m.flags & FLAG_PROMO) ? base + (PIECE_CH[m.promo] || 'q').toLowerCase() : base;
     }
 
     moveToSan(m) {
@@ -911,16 +1267,13 @@
         san += (PIECE_CH[piece] || '').toUpperCase();
 
         const moves = this.genMoves(false);
-        const same = moves.filter((x) =>
-          x.to === m.to &&
-          x.piece === m.piece &&
-          !(x.from === m.from && (x.promo || 0) === (m.promo || 0)),
-        );
+        const same = moves.filter(x =>
+          x.to === m.to && x.piece === m.piece &&
+          !(x.from === m.from && (x.promo || 0) === (m.promo || 0)));
         if (same.length) {
           const fromFile = m.from & 7;
           const fromRank = m.from >> 4;
-          let fileConflict = false;
-          let rankConflict = false;
+          let fileConflict = false, rankConflict = false;
           for (const x of same) {
             if ((x.from & 7) === fromFile) fileConflict = true;
             if ((x.from >> 4) === fromRank) rankConflict = true;
@@ -952,7 +1305,7 @@
       const moves = this.genMoves(false);
       for (const m of moves) {
         if (this.moveToUci(m) === uci) return m;
-        if ((m.flags & FLAG_PROMO) && uci.length === 4 && this.moveToUci(m).slice(0,4) === uci) return m;
+        if ((m.flags & FLAG_PROMO) && uci.length === 4 && this.moveToUci(m).slice(0, 4) === uci) return m;
       }
       return null;
     }
@@ -963,230 +1316,414 @@
       if (!dec) return null;
       const moves = this.genMoves(false);
       for (const m of moves) {
-        if (m.from === dec.from && m.to === dec.to &&
-           (m.promo || 0) === (dec.promo || 0)) return m;
+        if (m.from === dec.from && m.to === dec.to && (m.promo || 0) === (dec.promo || 0)) return m;
       }
       return null;
     }
 
-    /* ── Evaluation ── */
-    sq128To64(sq) { return ((sq >> 4) << 3) | (sq & 7); }
-    mirror64(i)   { return ((7-(i>>3))<<3)|(i&7); }
+    /* ──────────────────────────────────────────── */
+    /* ── SEE (improved: trace rays from target)  ── */
+    /* ──────────────────────────────────────────── */
 
-    _pst(p, sq) {
-      const i = this.sq128To64(sq);
-      const j = isWhite(p) ? i : this.mirror64(i);
-      if (p===WP||p===BP) return PST_PAWN[j];
-      if (p===WN||p===BN) return PST_KNIGHT[j];
-      if (p===WB||p===BB) return PST_BISHOP[j];
-      if (p===WR||p===BR) return PST_ROOK[j];
-      if (p===WQ||p===BQ) return PST_QUEEN[j];
-      if (p===WK||p===BK) return PST_KING_MG[j];
-      return 0;
-    }
+    _seeAttackers(to, side, occ) {
+      /* Find all attackers of `to` from `side` on `occ` board, return sorted by value (ascending). */
+      const attackers = [];
+      const board = occ;
 
-    _pawnStructure(whiteFiles, blackFiles, wpSquares, bpSquares) {
-
-      let mg = 0;
-      let eg = 0;
-
-      for (let f = 0; f < 8; f++) {
-        if (whiteFiles[f] > 1) { mg -= 11 * (whiteFiles[f] - 1); eg -= 3 * (whiteFiles[f] - 1); }
-        if (blackFiles[f] > 1) { mg += 11 * (blackFiles[f] - 1); eg += 3 * (blackFiles[f] - 1); }
-
-        if (whiteFiles[f] && (f === 0 ? whiteFiles[1] === 0 : (f === 7 ? whiteFiles[6] === 0 : whiteFiles[f - 1] === 0 && whiteFiles[f + 1] === 0))) {
-          mg -= 13 * whiteFiles[f];
-          eg -= 12 * whiteFiles[f];
-        }
-        if (blackFiles[f] && (f === 0 ? blackFiles[1] === 0 : (f === 7 ? blackFiles[6] === 0 : blackFiles[f - 1] === 0 && blackFiles[f + 1] === 0))) {
-          mg += 13 * blackFiles[f];
-          eg += 12 * blackFiles[f];
+      /* Pawns */
+      const pawn = side === WHITE ? WP : BP;
+      const pawnDirs = side === WHITE ? [-15, -17] : [15, 17];
+      for (const d of pawnDirs) {
+        const sq = to + d;
+        if (onBoard(sq) && board[sq] === pawn) {
+          attackers.push({ sq, piece: pawn, val: 100 });
         }
       }
 
-      const board = this.board;
+      /* Knights */
+      const knight = side === WHITE ? WN : BN;
+      for (let di = 0; di < 8; di++) {
+        const sq = to + KNIGHT_DIR[di];
+        if (onBoard(sq) && board[sq] === knight) {
+          attackers.push({ sq, piece: knight, val: 300 });
+        }
+      }
 
-      for (const sq of wpSquares) {
+      /* Bishops / Queens (diagonal) */
+      const bishop = side === WHITE ? WB : BB;
+      const queen  = side === WHITE ? WQ : BQ;
+      for (let di = 0; di < 4; di++) {
+        const d = BISHOP_DIR[di];
+        let sq = to + d;
+        while (onBoard(sq)) {
+          const p = board[sq];
+          if (p) {
+            if (p === bishop) attackers.push({ sq, piece: p, val: 310 });
+            else if (p === queen) attackers.push({ sq, piece: p, val: 900 });
+            break;
+          }
+          sq += d;
+        }
+      }
+
+      /* Rooks / Queens (straight) */
+      const rook = side === WHITE ? WR : BR;
+      for (let di = 0; di < 4; di++) {
+        const d = ROOK_DIR[di];
+        let sq = to + d;
+        while (onBoard(sq)) {
+          const p = board[sq];
+          if (p) {
+            if (p === rook) attackers.push({ sq, piece: p, val: 500 });
+            else if (p === queen && !attackers.find(a => a.sq === sq)) {
+              attackers.push({ sq, piece: p, val: 900 });
+            }
+            break;
+          }
+          sq += d;
+        }
+      }
+
+      /* King */
+      const king = side === WHITE ? WK : BK;
+      for (let di = 0; di < 8; di++) {
+        const sq = to + KING_DIR[di];
+        if (onBoard(sq) && board[sq] === king) {
+          attackers.push({ sq, piece: king, val: 20000 });
+        }
+      }
+
+      /* Sort by value ascending */
+      attackers.sort((a, b) => a.val - b.val);
+      return attackers;
+    }
+
+    _findNewSliderAttacker(to, removedSq, side, occ) {
+      /* After removing a piece at removedSq, check if a slider behind it now attacks `to`. */
+      const df = (to & 7) - (removedSq & 7);
+      const dr = (to >> 4) - (removedSq >> 4);
+
+      let dir = 0;
+      if (df === 0) dir = dr > 0 ? -16 : 16;
+      else if (dr === 0) dir = df > 0 ? -1 : 1;
+      else if (Math.abs(df) === Math.abs(dr)) {
+        dir = (df > 0 ? -1 : 1) + (dr > 0 ? -16 : 16);
+      } else {
+        return null; // Knight direction, no X-ray
+      }
+
+      const isDiag = Math.abs(dir) === 15 || Math.abs(dir) === 17;
+      const bishop = side === WHITE ? WB : BB;
+      const rook   = side === WHITE ? WR : BR;
+      const queen  = side === WHITE ? WQ : BQ;
+
+      let sq = removedSq + dir;
+      // Trace in the direction away from `to`
+      // Actually, we need to trace from `to` through `removedSq` outward
+      const awayDir = -dir; // direction from to through removedSq
+      sq = removedSq + awayDir;
+      while (onBoard(sq)) {
+        const p = occ[sq];
+        if (p) {
+          if (colorOf(p) === side) {
+            if (isDiag && (p === bishop || p === queen)) return { sq, piece: p, val: PIECE_VALUE[p] };
+            if (!isDiag && (p === rook || p === queen)) return { sq, piece: p, val: PIECE_VALUE[p] };
+          }
+          return null;
+        }
+        sq += awayDir;
+      }
+      return null;
+    }
+
+    see(m) {
+      if (!(m.flags & FLAG_CAPTURE)) return 0;
+
+      const occ = this.seeOcc;
+      occ.set(this.board);
+
+      const to = m.to;
+      const from = m.from;
+      const movedPiece = m.piece;
+      const placedPiece = m.promo || movedPiece;
+
+      let capturedValue = PIECE_VALUE[m.capture] || 0;
+      if (m.flags & FLAG_EP) capturedValue = 100;
+
+      occ[from] = EMPTY;
+      if (m.flags & FLAG_EP) {
+        const capSq = isWhite(m.piece) ? to - 16 : to + 16;
+        occ[capSq] = EMPTY;
+      }
+      occ[to] = placedPiece;
+
+      const gain = new Int16Array(32);
+      gain[0] = capturedValue;
+
+      let depth = 0;
+      let side = opponent(this.side);
+      let currentOnTo = placedPiece;
+
+      while (depth < 31) {
+        /* Find least valuable attacker for `side` */
+        const attackers = this._seeAttackers(to, side, occ);
+        if (!attackers.length) break;
+
+        /* Check for X-ray discovery from previous removal — simplified by re-scanning */
+        const att = attackers[0];
+
+        depth++;
+        gain[depth] = (PIECE_VALUE[currentOnTo] || 0) - gain[depth - 1];
+
+        /* Prune if even the best case can't beat current balance */
+        if (Math.max(-gain[depth - 1], gain[depth]) < 0 && depth > 1) break;
+
+        occ[att.sq] = EMPTY;
+        currentOnTo = att.piece;
+        occ[to] = att.piece;
+        side = opponent(side);
+      }
+
+      while (--depth > -1) {
+        gain[depth] = -Math.max(-gain[depth], gain[depth + 1]);
+      }
+      return gain[0];
+    }
+
+    /* ──────────────────────────────────────────── */
+    /* ── Evaluation                              ── */
+    /* ──────────────────────────────────────────── */
+
+    _pst(p, sq, table) {
+      const i64 = sq128To64(sq);
+      const j = isWhite(p) ? i64 : mirror64(i64);
+      return table[j];
+    }
+
+    _pawnStructureEval() {
+      /* Check pawn hash first */
+      const cached = this.pawnHash.probe(this.pHash);
+      if (cached) return cached;
+
+      const board = this.board;
+      const whiteFiles = new Int8Array(8);
+      const blackFiles = new Int8Array(8);
+      let mg = 0, eg = 0;
+
+      /* Collect file counts */
+      this.plist.forEach(WHITE, (sq, p) => {
+        if (p === WP) whiteFiles[sq & 7]++;
+      });
+      this.plist.forEach(BLACK, (sq, p) => {
+        if (p === BP) blackFiles[sq & 7]++;
+      });
+
+      /* Doubled & isolated pawns */
+      for (let f = 0; f < 8; f++) {
+        if (whiteFiles[f] > 1) { mg -= DOUBLED_MG * (whiteFiles[f] - 1); eg -= DOUBLED_EG * (whiteFiles[f] - 1); }
+        if (blackFiles[f] > 1) { mg += DOUBLED_MG * (blackFiles[f] - 1); eg += DOUBLED_EG * (blackFiles[f] - 1); }
+
+        const wIsolated = whiteFiles[f] && (f === 0 ? !whiteFiles[1] : (f === 7 ? !whiteFiles[6] : !whiteFiles[f-1] && !whiteFiles[f+1]));
+        const bIsolated = blackFiles[f] && (f === 0 ? !blackFiles[1] : (f === 7 ? !blackFiles[6] : !blackFiles[f-1] && !blackFiles[f+1]));
+        if (wIsolated) { mg -= ISOLATED_MG * whiteFiles[f]; eg -= ISOLATED_EG * whiteFiles[f]; }
+        if (bIsolated) { mg += ISOLATED_MG * blackFiles[f]; eg += ISOLATED_EG * blackFiles[f]; }
+      }
+
+      /* Per-pawn evaluation: passed, connected, blocked */
+      this.plist.forEach(WHITE, (sq, p) => {
+        if (p !== WP) return;
         const f = sq & 7;
-        const r = sq >> 4;
+        const r = sq >> 4; // 0-based rank
+
+        /* Passed pawn */
         let passed = true;
         for (let rr = r + 1; rr < 8 && passed; rr++) {
           for (let ff = Math.max(0, f - 1); ff <= Math.min(7, f + 1); ff++) {
             if (board[(rr << 4) | ff] === BP) { passed = false; break; }
           }
         }
-        if (passed) {
-          const adv = PAWN_PASSED[r + 1] || 0;
+        if (passed && r >= 1 && r <= 6) {
+          const adv = PAWN_PASSED[r] || 0;
           mg += Math.round(25 + 8 * adv);
           eg += Math.round(35 + 78 * adv);
         }
-        if ((onBoard(sq - 15) && board[sq - 15] === WP) || (onBoard(sq - 17) && board[sq - 17] === WP)) {
-          mg += 8;
-          eg += 8;
-        }
-      }
 
-      for (const sq of bpSquares) {
+        /* Connected */
+        if ((onBoard(sq - 15) && board[sq - 15] === WP) ||
+            (onBoard(sq - 17) && board[sq - 17] === WP)) {
+          mg += CONNECTED_BONUS; eg += CONNECTED_BONUS;
+        }
+
+        /* Blocked */
+        const ahead = sq + 16;
+        if (onBoard(ahead) && board[ahead] !== EMPTY) {
+          mg -= BLOCKED_PAWN_MG; eg -= BLOCKED_PAWN_EG;
+        }
+      });
+
+      this.plist.forEach(BLACK, (sq, p) => {
+        if (p !== BP) return;
         const f = sq & 7;
         const r = sq >> 4;
+
         let passed = true;
         for (let rr = r - 1; rr >= 0 && passed; rr--) {
           for (let ff = Math.max(0, f - 1); ff <= Math.min(7, f + 1); ff++) {
             if (board[(rr << 4) | ff] === WP) { passed = false; break; }
           }
         }
-        if (passed) {
-          const adv = PAWN_PASSED[8 - r] || 0;
+        if (passed && r >= 1 && r <= 6) {
+          const adv = PAWN_PASSED[7 - r] || 0;
           mg -= Math.round(25 + 8 * adv);
           eg -= Math.round(35 + 78 * adv);
         }
-        if ((onBoard(sq + 15) && board[sq + 15] === BP) || (onBoard(sq + 17) && board[sq + 17] === BP)) {
-          mg -= 8;
-          eg -= 8;
-        }
-      }
 
-      return { mg, eg, whiteFiles, blackFiles };
+        if ((onBoard(sq + 15) && board[sq + 15] === BP) ||
+            (onBoard(sq + 17) && board[sq + 17] === BP)) {
+          mg -= CONNECTED_BONUS; eg -= CONNECTED_BONUS;
+        }
+
+        const ahead = sq - 16;
+        if (onBoard(ahead) && board[ahead] !== EMPTY) {
+          mg += BLOCKED_PAWN_MG; eg += BLOCKED_PAWN_EG;
+        }
+      });
+
+      const result = { mg, eg };
+      this.pawnHash.store(this.pHash, mg, eg);
+      return result;
     }
 
     _inKingZone(sq, kingSq) {
-      const rf = Math.abs((sq & 7) - (kingSq & 7));
-      const rr = Math.abs((sq >> 4) - (kingSq >> 4));
-      return rf <= 1 && rr <= 1;
+      return Math.abs((sq & 7) - (kingSq & 7)) <= 1 &&
+             Math.abs((sq >> 4) - (kingSq >> 4)) <= 1;
     }
 
-    _activityEval(whiteKingSq, blackKingSq, whiteFiles, blackFiles) {
-      let mg = 0;
-      let eg = 0;
+    _activityEval() {
+      const board = this.board;
+      const whiteKingSq = this.kingPos[WHITE];
+      const blackKingSq = this.kingPos[BLACK];
+      let mg = 0, eg = 0;
       let wAttackN = 0, wAttackV = 0;
       let bAttackN = 0, bAttackV = 0;
-      let wRookMask = 0;
-      let bRookMask = 0;
+      let wRookFiles = 0, bRookFiles = 0;
 
-      const board = this.board;
+      /* White files / black files for rook eval */
+      const wPawnFiles = new Int8Array(8);
+      const bPawnFiles = new Int8Array(8);
+      this.plist.forEach(WHITE, (sq, p) => { if (p === WP) wPawnFiles[sq & 7]++; });
+      this.plist.forEach(BLACK, (sq, p) => { if (p === BP) bPawnFiles[sq & 7]++; });
 
-      const addSlider = (sq, p, dirs, us) => {
-        let mob = 0;
-        let tight = 0;
-        let tense = 0;
-        let zoneHit = 0;
-        for (const d of dirs) {
-          let to = sq + d;
-          while (onBoard(to)) {
-            const tp = board[to];
-            const inZone = this._inKingZone(to, us === WHITE ? blackKingSq : whiteKingSq);
-            if (!tp) {
-              mob++;
-              if (inZone) zoneHit = 1;
-              to += d;
-              continue;
-            }
-            if (colorOf(tp) !== us) {
-              mob++;
-              tense++;
-              if (inZone) zoneHit = 1;
-            } else {
-              tight++;
-            }
-            break;
-          }
-        }
-        return { mob, tight, tense, zoneHit };
-      };
+      const evalPiece = (sq, p, us) => {
+        const pt = p & 7;
+        if (pt === 1 || pt === 6) return; // pawns & kings handled elsewhere
 
-      for (let sq = 0; sq < 128; sq++) {
-        if (!onBoard(sq)) { sq += 7; continue; }
-        const p = board[sq];
-        if (!p || p === WP || p === BP || p === WK || p === BK) continue;
-
-        const us = colorOf(p);
         const file = sq & 7;
         const rank = sq >> 4;
-        let mob = 0;
-        let tight = 0;
-        let tense = 0;
-        let zoneHit = 0;
+        const oppKingSq = us === WHITE ? blackKingSq : whiteKingSq;
+        const sign = us === WHITE ? 1 : -1;
 
-        if (p === WN || p === BN) {
-          for (const d of KNIGHT_DIR) {
-            const to = sq + d;
+        let mob = 0, tight = 0, tense = 0, zoneHit = 0;
+
+        if (pt === 2) { // Knight
+          for (let di = 0; di < 8; di++) {
+            const to = sq + KNIGHT_DIR[di];
             if (!onBoard(to)) continue;
             const tp = board[to];
             if (!tp) mob++;
             else if (colorOf(tp) !== us) { mob++; tense++; }
             else tight++;
-            if (this._inKingZone(to, us === WHITE ? blackKingSq : whiteKingSq)) zoneHit = 1;
+            if (this._inKingZone(to, oppKingSq)) zoneHit = 1;
           }
           const s = mob ? mob * MOBN_S : MOBN_S0;
           const e = mob ? mob * MOBN_E : MOBN_E0;
-          const ts = tight * TIGHT_NS + tense * TENSE_NS;
-          const te = tight * TIGHT_NE + tense * TENSE_NE;
-          if (us === WHITE) { mg += s + ts; eg += e + te; if (zoneHit) { wAttackN++; wAttackV += ATT_N; } }
-          else { mg -= s + ts; eg -= e + te; if (zoneHit) { bAttackN++; bAttackV += ATT_N; } }
-          continue;
+          mg += sign * (s + tight * TIGHT_NS + tense * TENSE_NS);
+          eg += sign * (e + tight * TIGHT_NE + tense * TENSE_NE);
+          if (zoneHit) { if (us === WHITE) { wAttackN++; wAttackV += ATT_N; } else { bAttackN++; bAttackV += ATT_N; } }
+          return;
         }
 
-        if (p === WB || p === BB) {
-          ({ mob, tight, tense, zoneHit } = addSlider(sq, p, BISHOP_DIR, us));
-          const s = mob ? mob * MOBB_S : MOBB_S0;
-          const e = mob ? mob * MOBB_E : MOBB_E0;
-          const ts = tight * TIGHT_BS + tense * TENSE_BS;
-          const te = tight * TIGHT_BE + tense * TENSE_BE;
-          if (us === WHITE) { mg += s + ts; eg += e + te; if (zoneHit) { wAttackN++; wAttackV += ATT_B; } }
-          else { mg -= s + ts; eg -= e + te; if (zoneHit) { bAttackN++; bAttackV += ATT_B; } }
-          continue;
-        }
-
-        if (p === WR || p === BR) {
-          ({ mob, tight, tense, zoneHit } = addSlider(sq, p, ROOK_DIR, us));
-          const s = mob ? mob * MOBR_S : MOBR_S0;
-          const e = mob ? mob * MOBR_E : MOBR_E0;
-          const ts = tight * TIGHT_RS + tense * TENSE_RS;
-          const te = tight * TIGHT_RE + tense * TENSE_RE;
-          if (us === WHITE) {
-            mg += s + ts;
-            eg += e + te;
-            if (zoneHit) { wAttackN++; wAttackV += ATT_R; }
-            if (rank === 6 && ((blackKingSq >> 4) === 7 || blackFiles[file] > 0)) { mg += ROOK7TH_S; eg += ROOK7TH_E; }
-            if (!whiteFiles[file]) { mg += ROOKOPEN_S; eg += ROOKOPEN_E; if (!blackFiles[file]) { mg += ROOKOPEN_S; eg += ROOKOPEN_E; } }
-            if (wRookMask & (1 << file)) { mg += ROOK_DOUBLED_S; eg += ROOK_DOUBLED_E; }
-            wRookMask |= (1 << file);
-          } else {
-            mg -= s + ts;
-            eg -= e + te;
-            if (zoneHit) { bAttackN++; bAttackV += ATT_R; }
-            if (rank === 1 && ((whiteKingSq >> 4) === 0 || whiteFiles[file] > 0)) { mg -= ROOK7TH_S; eg -= ROOK7TH_E; }
-            if (!blackFiles[file]) { mg -= ROOKOPEN_S; eg -= ROOKOPEN_E; if (!whiteFiles[file]) { mg -= ROOKOPEN_S; eg -= ROOKOPEN_E; } }
-            if (bRookMask & (1 << file)) { mg -= ROOK_DOUBLED_S; eg -= ROOK_DOUBLED_E; }
-            bRookMask |= (1 << file);
-          }
-          continue;
-        }
-
-        if (p === WQ || p === BQ) {
-          const a = addSlider(sq, p, BISHOP_DIR, us);
-          const bq = addSlider(sq, p, ROOK_DIR, us);
-          mob = a.mob + bq.mob;
-          tight = a.tight + bq.tight;
-          tense = a.tense + bq.tense;
-          zoneHit = a.zoneHit || bq.zoneHit ? 1 : 0;
-          const s = mob ? mob * MOBQ_S : MOBQ_S0;
-          const e = mob ? mob * MOBQ_E : MOBQ_E0;
-          const ts = tight * TIGHT_QS + tense * TENSE_QS;
-          const te = tight * TIGHT_QE + tense * TENSE_QE;
-          if (us === WHITE) {
-            mg += s + ts;
-            eg += e + te;
-            if (zoneHit) { wAttackN++; wAttackV += ATT_Q; }
-            if (rank === 6 && (blackKingSq >> 4) === 7) { mg += QUEEN7TH_S; eg += QUEEN7TH_E; }
-          } else {
-            mg -= s + ts;
-            eg -= e + te;
-            if (zoneHit) { bAttackN++; bAttackV += ATT_Q; }
-            if (rank === 1 && (whiteKingSq >> 4) === 0) { mg -= QUEEN7TH_S; eg -= QUEEN7TH_E; }
+        /* Slider helper (inline) */
+        const slideDirs = pt === 3 ? BISHOP_DIR : (pt === 4 ? ROOK_DIR : null);
+        if (pt === 3 || pt === 4) {
+          for (let di = 0, len = slideDirs.length; di < len; di++) {
+            const d = slideDirs[di];
+            let to = sq + d;
+            while (onBoard(to)) {
+              const tp = board[to];
+              if (!tp) { mob++; if (this._inKingZone(to, oppKingSq)) zoneHit = 1; to += d; continue; }
+              if (colorOf(tp) !== us) { mob++; tense++; if (this._inKingZone(to, oppKingSq)) zoneHit = 1; }
+              else tight++;
+              break;
+            }
           }
         }
-      }
+
+        if (pt === 5) { // Queen
+          for (const dirs of [BISHOP_DIR, ROOK_DIR]) {
+            for (let di = 0, len = dirs.length; di < len; di++) {
+              const d = dirs[di];
+              let to = sq + d;
+              while (onBoard(to)) {
+                const tp = board[to];
+                if (!tp) { mob++; if (this._inKingZone(to, oppKingSq)) zoneHit = 1; to += d; continue; }
+                if (colorOf(tp) !== us) { mob++; tense++; if (this._inKingZone(to, oppKingSq)) zoneHit = 1; }
+                else tight++;
+                break;
+              }
+            }
+          }
+        }
+
+        /* Apply mobility/tension/tightness weights */
+        let mobS, mobE, ts, te;
+        if (pt === 3) { // Bishop
+          mobS = mob ? mob * MOBB_S : MOBB_S0; mobE = mob ? mob * MOBB_E : MOBB_E0;
+          ts = tight * TIGHT_BS + tense * TENSE_BS; te = tight * TIGHT_BE + tense * TENSE_BE;
+        } else if (pt === 4) { // Rook
+          mobS = mob ? mob * MOBR_S : MOBR_S0; mobE = mob ? mob * MOBR_E : MOBR_E0;
+          ts = tight * TIGHT_RS + tense * TENSE_RS; te = tight * TIGHT_RE + tense * TENSE_RE;
+        } else { // Queen
+          mobS = mob ? mob * MOBQ_S : MOBQ_S0; mobE = mob ? mob * MOBQ_E : MOBQ_E0;
+          ts = tight * TIGHT_QS + tense * TENSE_QS; te = tight * TIGHT_QE + tense * TENSE_QE;
+        }
+
+        mg += sign * (mobS + ts);
+        eg += sign * (mobE + te);
+
+        if (zoneHit) {
+          const attVal = pt === 3 ? ATT_B : (pt === 4 ? ATT_R : ATT_Q);
+          if (us === WHITE) { wAttackN++; wAttackV += attVal; } else { bAttackN++; bAttackV += attVal; }
+        }
+
+        /* Rook bonuses */
+        if (pt === 4) {
+          const ownPawnFiles = us === WHITE ? wPawnFiles : bPawnFiles;
+          const oppPawnFiles = us === WHITE ? bPawnFiles : wPawnFiles;
+          const rookMask = us === WHITE ? wRookFiles : bRookFiles;
+
+          if (us === WHITE) {
+            if (rank === 6 && ((blackKingSq >> 4) === 7 || bPawnFiles[file] > 0)) { mg += ROOK7TH_S; eg += ROOK7TH_E; }
+            if (!ownPawnFiles[file]) { mg += ROOKOPEN_S; eg += ROOKOPEN_E; if (!oppPawnFiles[file]) { mg += ROOKOPEN_S; eg += ROOKOPEN_E; } }
+            if (wRookFiles & (1 << file)) { mg += ROOK_DOUBLED_S; eg += ROOK_DOUBLED_E; }
+            wRookFiles |= (1 << file);
+          } else {
+            if (rank === 1 && ((whiteKingSq >> 4) === 0 || wPawnFiles[file] > 0)) { mg -= ROOK7TH_S; eg -= ROOK7TH_E; }
+            if (!ownPawnFiles[file]) { mg -= ROOKOPEN_S; eg -= ROOKOPEN_E; if (!oppPawnFiles[file]) { mg -= ROOKOPEN_S; eg -= ROOKOPEN_E; } }
+            if (bRookFiles & (1 << file)) { mg -= ROOK_DOUBLED_S; eg -= ROOK_DOUBLED_E; }
+            bRookFiles |= (1 << file);
+          }
+        }
+
+        /* Queen on 7th */
+        if (pt === 5) {
+          if (us === WHITE && rank === 6 && (blackKingSq >> 4) === 7) { mg += QUEEN7TH_S; eg += QUEEN7TH_E; }
+          if (us === BLACK && rank === 1 && (whiteKingSq >> 4) === 0) { mg -= QUEEN7TH_S; eg -= QUEEN7TH_E; }
+        }
+      };
+
+      this.plist.forEach(WHITE, (sq, p) => evalPiece(sq, p, WHITE));
+      this.plist.forEach(BLACK, (sq, p) => evalPiece(sq, p, BLACK));
 
       mg += Math.round(wAttackV * ATT_W[Math.min(16, wAttackN)]);
       mg -= Math.round(bAttackV * ATT_W[Math.min(16, bAttackN)]);
@@ -1194,36 +1731,23 @@
       return { mg, eg };
     }
 
-    _kingSafetyEval(whiteFiles, blackFiles) {
+    _kingSafetyEval() {
       const board = this.board;
-      const zoneSquares = (kingSq, us) => {
-        const z = [];
-        const push = us === WHITE ? 16 : -16;
-        z.push(kingSq);
-        for (const d of KING_DIR) {
-          const to = kingSq + d;
-          if (onBoard(to)) z.push(to);
-        }
-        const front = kingSq + push;
-        if (onBoard(front)) {
-          z.push(front);
-          if (onBoard(front - 1)) z.push(front - 1);
-          if (onBoard(front + 1)) z.push(front + 1);
-        }
-        return z;
-      };
+      const wPawnFiles = new Int8Array(8);
+      const bPawnFiles = new Int8Array(8);
+      this.plist.forEach(WHITE, (sq, p) => { if (p === WP) wPawnFiles[sq & 7]++; });
+      this.plist.forEach(BLACK, (sq, p) => { if (p === BP) bPawnFiles[sq & 7]++; });
 
-      const evalSide = (kingSq, us, ownFiles, oppFiles) => {
+      const evalSide = (kingSq, us) => {
         const f = kingSq & 7;
         const r = kingSq >> 4;
         const ownPawn = us === WHITE ? WP : BP;
         const oppColor = opponent(us);
         const forward = us === WHITE ? 1 : -1;
+        const ownFiles = us === WHITE ? wPawnFiles : bPawnFiles;
+        const oppFiles = us === WHITE ? bPawnFiles : wPawnFiles;
 
-        let shelter = 0;
-        let storm = 0;
-
-        // Pawn shield and storm in front of king.
+        let shelter = 0, storm = 0;
         for (let df = -1; df <= 1; df++) {
           const ff = f + df;
           if (ff < 0 || ff > 7) continue;
@@ -1237,207 +1761,93 @@
           }
         }
 
-        // Penalize open / semi-open files around king.
         let openPenalty = 0;
         for (let df = -1; df <= 1; df++) {
           const ff = f + df;
           if (ff < 0 || ff > 7) continue;
-          if (ownFiles[ff] === 0) openPenalty += 8;
+          if (ownFiles[ff] === 0) openPenalty += KSAFETY_OPEN;
           if (ownFiles[ff] === 0 && oppFiles[ff] === 0) openPenalty += 4;
         }
 
-        // Count enemy attacks near king as danger metric.
-        const zone = zoneSquares(kingSq, us);
         let attackCount = 0;
-        for (const sq of zone) {
-          if (this.isAttacked(sq, oppColor)) attackCount++;
+        for (let di = 0; di < 8; di++) {
+          const to = kingSq + KING_DIR[di];
+          if (onBoard(to) && this.isAttacked(to, oppColor)) attackCount++;
         }
+        if (this.isAttacked(kingSq, oppColor)) attackCount++;
 
-        // Bonus when king is clearly safe.
-        const safeBonus = shelter >= 16 && attackCount <= 2 ? 10 : 0;
-
-        const mg = (shelter * 5) - (storm * 4) - openPenalty - (attackCount * 7) + safeBonus;
-        const eg = (shelter * 2) - (storm * 2) - Math.floor(openPenalty / 2) - (attackCount * 3);
-        return { mg, eg };
+        const safeBonus = shelter >= 16 && attackCount <= 2 ? KSAFETY_SAFE_BONUS : 0;
+        const mgVal = (shelter * KSAFETY_SHELTER) - (storm * KSAFETY_STORM) - openPenalty - (attackCount * KSAFETY_ATTACK) + safeBonus;
+        const egVal = (shelter * KSAFETY_SHELTER_EG) - (storm * KSAFETY_STORM_EG) - Math.floor(openPenalty / KSAFETY_OPEN_EG_DIV) - (attackCount * KSAFETY_ATTACK_EG);
+        return { mg: mgVal, eg: egVal };
       };
 
-      const w = evalSide(this.kingPos[WHITE], WHITE, whiteFiles, blackFiles);
-      const b = evalSide(this.kingPos[BLACK], BLACK, blackFiles, whiteFiles);
+      const w = evalSide(this.kingPos[WHITE], WHITE);
+      const b = evalSide(this.kingPos[BLACK], BLACK);
       return { mg: w.mg - b.mg, eg: w.eg - b.eg };
     }
 
     evaluate() {
       if (this.isInsufficientMaterial()) return 0;
-      let mgScore = 0;
-      let egScore = 0;
-      let phase = 0;
-      let whiteBishops = 0;
-      let blackBishops = 0;
-      const whiteFiles = new Int8Array(8);
-      const blackFiles = new Int8Array(8);
-      const wpSquares = [];
-      const bpSquares = [];
-      const board = this.board;
-      for (let sq = 0; sq < 128; sq++) {
-        if (!onBoard(sq)) { sq += 7; continue; }
-        const p = board[sq];
-        if (!p) continue;
-        const mat = PIECE_VALUE[p] || 0;
-        const pstMg = this._pst(p, sq);
-        const i = this.sq128To64(sq);
-        const j = isWhite(p) ? i : this.mirror64(i);
-        const pstEg = (p === WK || p === BK) ? PST_KING_EG[j] : pstMg;
 
-        if (isWhite(p)) {
-          mgScore += mat + pstMg;
-          egScore += mat + pstEg;
-          if (p === WB) whiteBishops++;
-          if (p === WP) {
-            whiteFiles[sq & 7]++;
-            wpSquares.push(sq);
-          }
-        } else {
-          mgScore -= mat + pstMg;
-          egScore -= mat + pstEg;
-          if (p === BB) blackBishops++;
-          if (p === BP) {
-            blackFiles[sq & 7]++;
-            bpSquares.push(sq);
-          }
-        }
+      let mgScore = 0, egScore = 0, phase = 0;
+      let whiteBishops = 0, blackBishops = 0;
 
-        phase += PHASE_WEIGHT[p] || 0;
-      }
+      /* Material + PST using piece lists */
+      this.plist.forEach(WHITE, (sq, p) => {
+        const pt = p & 7;
+        const mat = PIECE_VALUE[p];
+        const pstMg = PST_MG[pt] ? this._pst(p, sq, PST_MG[pt]) : 0;
+        const pstEg = PST_EG[pt] ? this._pst(p, sq, PST_EG[pt]) : 0;
+        mgScore += mat + pstMg;
+        egScore += mat + pstEg;
+        phase += PHASE_WEIGHT[p];
+        if (p === WB) whiteBishops++;
+      });
+
+      this.plist.forEach(BLACK, (sq, p) => {
+        const pt = p & 7;
+        const mat = PIECE_VALUE[p];
+        const pstMg = PST_MG[pt] ? this._pst(p, sq, PST_MG[pt]) : 0;
+        const pstEg = PST_EG[pt] ? this._pst(p, sq, PST_EG[pt]) : 0;
+        mgScore -= mat + pstMg;
+        egScore -= mat + pstEg;
+        phase += PHASE_WEIGHT[p];
+        if (p === BB) blackBishops++;
+      });
 
       if (whiteBishops >= 2) { mgScore += TWOBISHOPS_S; egScore += TWOBISHOPS_E; }
       if (blackBishops >= 2) { mgScore -= TWOBISHOPS_S; egScore -= TWOBISHOPS_E; }
 
-      const pawnStruct = this._pawnStructure(whiteFiles, blackFiles, wpSquares, bpSquares);
+      /* Pawn structure (cached) */
+      const pawnStruct = this._pawnStructureEval();
       mgScore += pawnStruct.mg;
       egScore += pawnStruct.eg;
 
-      const activity = this._activityEval(this.kingPos[WHITE], this.kingPos[BLACK], pawnStruct.whiteFiles, pawnStruct.blackFiles);
+      /* Piece activity & mobility */
+      const activity = this._activityEval();
       mgScore += activity.mg;
       egScore += activity.eg;
 
-      const kingSafety = this._kingSafetyEval(pawnStruct.whiteFiles, pawnStruct.blackFiles);
+      /* King safety */
+      const kingSafety = this._kingSafetyEval();
       mgScore += kingSafety.mg;
       egScore += kingSafety.eg;
 
+      /* Tapered eval */
       const phaseClamped = Math.max(0, Math.min(MAX_PHASE, phase));
       let score = Math.round((mgScore * phaseClamped + egScore * (MAX_PHASE - phaseClamped)) / MAX_PHASE);
 
+      /* Check penalty */
       if (this.inCheck(this.side)) {
         score += this.side === WHITE ? -20 : 20;
       }
 
-      /* Tempo bonus */
-      score += this.side === WHITE ? 10 : -10;
+      /* Tempo bonus (phase-dependent) */
+      const tempoBonus = Math.round((TEMPO_MG * phaseClamped + TEMPO_EG * (MAX_PHASE - phaseClamped)) / MAX_PHASE);
+      score += this.side === WHITE ? tempoBonus : -tempoBonus;
+
       return this.side === WHITE ? score : -score;
-    }
-
-    _attacksSquareOnOcc(from, to, piece, occ) {
-      const type = piece & 7;
-      if (type === 1) {
-        if (isWhite(piece)) return from + 15 === to || from + 17 === to;
-        return from - 15 === to || from - 17 === to;
-      }
-      if (type === 2) {
-        for (const d of KNIGHT_DIR) {
-          if (from + d === to) return true;
-        }
-        return false;
-      }
-      if (type === 3 || type === 5) {
-        for (const d of BISHOP_DIR) {
-          let sq = from + d;
-          while (onBoard(sq)) {
-            if (sq === to) return true;
-            if (occ[sq] !== EMPTY) break;
-            sq += d;
-          }
-        }
-        if (type === 3) return false;
-      }
-      if (type === 4 || type === 5) {
-        for (const d of ROOK_DIR) {
-          let sq = from + d;
-          while (onBoard(sq)) {
-            if (sq === to) return true;
-            if (occ[sq] !== EMPTY) break;
-            sq += d;
-          }
-        }
-        if (type === 4) return false;
-      }
-      if (type === 6) {
-        for (const d of KING_DIR) {
-          if (from + d === to) return true;
-        }
-      }
-      return false;
-    }
-
-    _leastValuableAttacker(to, side, occ) {
-      let bestSq = -1;
-      let bestPiece = EMPTY;
-      let bestVal = INF;
-      for (let sq = 0; sq < 128; sq++) {
-        if (!onBoard(sq)) { sq += 7; continue; }
-        const p = occ[sq];
-        if (!p) continue;
-        if (colorOf(p) !== side) continue;
-        if (!this._attacksSquareOnOcc(sq, to, p, occ)) continue;
-        const v = PIECE_VALUE[p] || 0;
-        if (v < bestVal) {
-          bestVal = v;
-          bestSq = sq;
-          bestPiece = p;
-        }
-      }
-      if (bestSq === -1) return null;
-      return { sq: bestSq, piece: bestPiece };
-    }
-
-    see(m) {
-      if (!(m.flags & FLAG_CAPTURE)) return 0;
-
-      const occ = new Uint8Array(128);
-      occ.set(this.board);
-
-      const from = m.from;
-      const to = m.to;
-      const movedPiece = m.piece;
-      const placedPiece = m.promo || movedPiece;
-
-      let capturedValue = PIECE_VALUE[m.capture] || 0;
-      if (m.flags & FLAG_EP) capturedValue = PIECE_VALUE[isWhite(m.piece) ? BP : WP];
-
-      const gain = new Int16Array(32);
-      gain[0] = capturedValue;
-
-      occ[from] = EMPTY;
-      if (m.flags & FLAG_EP) {
-        const capSq = isWhite(m.piece) ? to - 16 : to + 16;
-        occ[capSq] = EMPTY;
-      }
-      occ[to] = placedPiece;
-
-      let depth = 0;
-      let side = opponent(this.side);
-      while (true) {
-        const att = this._leastValuableAttacker(to, side, occ);
-        if (!att) break;
-        depth++;
-        gain[depth] = (PIECE_VALUE[att.piece] || 0) - gain[depth - 1];
-        occ[att.sq] = EMPTY;
-        side = opponent(side);
-      }
-
-      while (--depth > -1) {
-        gain[depth] = -Math.max(-gain[depth], gain[depth + 1]);
-      }
-      return gain[0];
     }
 
     /* ── Move ordering ── */
@@ -1445,22 +1855,21 @@
       const enc = TranspositionTable.encodeMove(m);
       if (enc === ttBestEnc) return 2000000;
       if (m.flags & FLAG_CAPTURE) {
-        const victim = (m.capture & 7) || 0;
-        const attacker = (m.piece & 7) || 0;
-        const mvv = MVV_LVA[victim][attacker] || 0;
-        const see = m._see || 0;
-        const movingQueen = m.piece === WQ || m.piece === BQ;
-        // Strongly discourage queen trades down unless there is clear tactical compensation.
-        if (movingQueen && victim !== 5 && see < 250) return 120000 + mvv + see;
-        if (see < 0) return 250000 + mvv + see;
-        return 1500000 + mvv + Math.min(200, see);
+        const victim   = pieceType(m.capture) || 0;
+        const attacker = pieceType(m.piece) || 0;
+        const mvv = MVV_LVA[victim] ? (MVV_LVA[victim][attacker] || 0) : 0;
+        const seeVal = m._see || 0;
+        const movingQueen = pieceType(m.piece) === 5;
+        if (movingQueen && victim !== 5 && seeVal < 250) return 120000 + mvv + seeVal;
+        if (seeVal < 0) return 250000 + mvv + seeVal;
+        return 1500000 + mvv + Math.min(200, seeVal);
       }
-      if (m.flags & FLAG_PROMO) return 1100000 + ((m.promo & 7) || 0);
+      if (m.flags & FLAG_PROMO) return 1100000 + (pieceType(m.promo) || 0);
       const killers = this.killers[ply] || [];
       if (enc === killers[0]) return 800000;
       if (enc === killers[1]) return 700000;
-      let quiet = (this.histTable[(m.piece << 7) | m.to] | 0) + this.getContinuationBonus(m);
-      if (m.piece === WQ || m.piece === BQ) {
+      let quiet = (this.histTable[(m.piece << 7) | m.to] | 0) + this._getContinuationBonus(m);
+      if (pieceType(m.piece) === 5) {
         const them = opponent(this.side);
         if (this.isAttacked(m.to, them)) quiet -= 220;
         if (this.isSquareAttackedByPawn(m.to, them)) quiet -= 180;
@@ -1471,9 +1880,8 @@
     scoreMoves(moves, ttBestEnc, ply) {
       for (const m of moves) {
         if (m.flags & FLAG_CAPTURE) {
-          const victimVal = PIECE_VALUE[m.capture] || 0;
+          const victimVal   = PIECE_VALUE[m.capture] || 0;
           const attackerVal = PIECE_VALUE[m.piece] || 0;
-          // Fast path: obvious favorable captures skip expensive SEE.
           m._see = victimVal >= attackerVal ? (victimVal - attackerVal) : this.see(m);
         } else {
           m._see = 0;
@@ -1486,9 +1894,8 @@
       let bestIdx = startIdx;
       let bestScore = moves[startIdx]._score;
       for (let i = startIdx + 1; i < moves.length; i++) {
-        const s = moves[i]._score;
-        if (s > bestScore) {
-          bestScore = s;
+        if (moves[i]._score > bestScore) {
+          bestScore = moves[i]._score;
           bestIdx = i;
         }
       }
@@ -1502,7 +1909,7 @@
 
     storeKiller(m, ply) {
       const enc = TranspositionTable.encodeMove(m);
-      const k   = this.killers[ply];
+      const k = this.killers[ply];
       if (enc !== k[0]) { k[1] = k[0]; k[0] = enc; }
     }
 
@@ -1512,12 +1919,13 @@
       return enc === k[0] || enc === k[1];
     }
 
-    getContinuationBonus(m) {
+    _getContinuationBonus(m) {
       const curIdx = (m.piece << 7) | m.to;
       const prev = this.history[this.history.length - 1];
       if (!prev || prev.from < 0 || !prev.piece) return 0;
       const prevIdx = (prev.piece << 7) | prev.to;
-      return this.contHist[prevIdx * (15 * 128) + curIdx] | 0;
+      if (prevIdx >= this.contHistSize || curIdx >= this.contHistSize) return 0;
+      return this.contHist[prevIdx * this.contHistSize + curIdx] | 0;
     }
 
     updateHistory(m, depth) {
@@ -1527,19 +1935,13 @@
       const prev = this.history[this.history.length - 1];
       if (!prev || prev.from < 0 || !prev.piece) return;
       const prevIdx = (prev.piece << 7) | prev.to;
-      const cidx = prevIdx * (15 * 128) + idx;
+      if (prevIdx >= this.contHistSize || idx >= this.contHistSize) return;
+      const cidx = prevIdx * this.contHistSize + idx;
       this.contHist[cidx] = Math.max(-20000, Math.min(20000, (this.contHist[cidx] | 0) + depth * depth));
     }
 
     hasNonPawnMaterial(color) {
-      const lo = color === WHITE ? WN : BN;
-      const hi = color === WHITE ? WQ : BQ;
-      for (let sq=0;sq<128;sq++) {
-        if (!onBoard(sq)){sq+=7;continue;}
-        const p=this.board[sq];
-        if (p>=lo&&p<=hi) return true;
-      }
-      return false;
+      return this.plist.hasNonPawnMaterial(color);
     }
 
     /* ── Quiescence ── */
@@ -1547,12 +1949,12 @@
       if (this.stop) return alpha;
       this._checkTime();
       if (this.stop) return alpha;
-      if (this.isDraw()||this.isInsufficientMaterial()) return 0;
+      if (this.isDraw() || this.isInsufficientMaterial()) return 0;
       if (this.selDepthHard > 0 && ply >= this.selDepthHard) return this.evaluate();
 
       this.nodes++;
       this.selDepth = Math.max(this.selDepth, ply);
-      if (ply >= 120) return this.evaluate();
+      if (ply >= MAX_PLY - 2) return this.evaluate();
 
       const inChk = this.inCheck(this.side);
 
@@ -1583,13 +1985,12 @@
 
       for (let i = 0; i < moves.length; i++) {
         const m = this.pickNextMove(moves, i);
-        /* Delta pruning */
-        const gain = (PIECE_VALUE[m.capture]||0) + (m.promo ? PIECE_VALUE[m.promo]||0 : 0);
+        const gain = (PIECE_VALUE[m.capture] || 0) + (m.promo ? PIECE_VALUE[m.promo] || 0 : 0);
         if (stand + gain + 200 < alpha) continue;
         if ((m.flags & FLAG_CAPTURE) && !(m.flags & FLAG_PROMO) && (m._see || 0) < 0) continue;
 
         this.makeMove(m);
-        const score = -this.qsearch(-beta, -alpha, ply+1);
+        const score = -this.qsearch(-beta, -alpha, ply + 1);
         this.undoMove();
         if (this.stop) return alpha;
         if (score >= beta) return beta;
@@ -1598,22 +1999,56 @@
       return alpha;
     }
 
+    /* ── Singular Extension Verification ── */
+    _singularExtension(m, depth, beta, ply, ttBestEnc) {
+      const enc = TranspositionTable.encodeMove(m);
+      if (enc !== ttBestEnc) return 0;
+      if (depth < 8) return 0;
+
+      /* Check that the TT score is a lower bound and close to beta */
+      const i = this.tt._idx(this.hash);
+      if (!this.tt._keysMatch(i, this.hash)) return 0;
+      const ttDepth = this.tt.data[i + TT_DEPTH];
+      const ttScore = this.tt.data[i + TT_SCORE];
+      const ttFlag  = this.tt.data[i + TT_FLAG];
+      if (ttDepth < depth - 3) return 0;
+      if (ttFlag === -1) return 0; // upper bound, not reliable
+      if (ttScore < beta - 80) return 0;
+
+      /* Reduced search excluding TT move to verify singularity */
+      const rBeta = Math.max(-INF, ttScore - 2 * depth);
+      const rDepth = Math.max(1, (depth - 1) / 2 | 0);
+
+      const moves = this.genMoves(false);
+      this.scoreMoves(moves, 0, ply); // no TT priority
+
+      for (let mi = 0; mi < moves.length; mi++) {
+        const other = this.pickNextMove(moves, mi);
+        if (other.from === m.from && other.to === m.to && (other.promo || 0) === (m.promo || 0)) continue;
+        this.makeMove(other);
+        const score = -this.negamax(rDepth, -rBeta - 1, -rBeta, ply + 1, false);
+        this.undoMove();
+        if (this.stop) return 0;
+        if (score > rBeta) return 0; // not singular
+      }
+      return 1; // TT move is singular, extend
+    }
+
     /* ── Negamax + PVS ── */
     negamax(depth, alpha, beta, ply, allowNull = true) {
       if (this.stop) return 0;
       this._checkTime();
       if (this.stop) return 0;
-      if (this.selDepthHard > 0 && ply >= this.selDepthHard) return this.evaluate();
+      if (ply >= MAX_PLY - 2) return this.evaluate();
 
       const isPV = beta - alpha > 1;
       this.nodes++;
       this.selDepth = Math.max(this.selDepth, ply);
 
-      if (this.isDraw()||this.isInsufficientMaterial()) return 0;
+      if (this.isDraw() || this.isInsufficientMaterial()) return 0;
 
       const inChk = this.inCheck(this.side);
 
-      /* Check extension */
       if (inChk) depth++;
 
       if (depth <= 0) return this.qsearch(alpha, beta, ply);
@@ -1640,14 +2075,24 @@
         if (staticEval - margin >= beta) return staticEval - margin;
       }
 
-      /* Null-move pruning */
+      /* Null-move pruning with verification */
       if (allowNull && !isPV && depth >= 3 && !inChk && this.hasNonPawnMaterial(this.side)) {
         const R = depth >= 6 ? 4 : 3;
         this.makeNullMove();
-        const nmScore = -this.negamax(depth - 1 - R, -beta, -beta+1, ply+1, false);
+        let nmScore = -this.negamax(depth - 1 - R, -beta, -beta + 1, ply + 1, false);
         this.undoNullMove();
         if (this.stop) return 0;
-        if (nmScore >= beta) return beta;
+
+        if (nmScore >= beta) {
+          /* Verification search at reduced depth to guard against zugzwang */
+          if (depth >= 8) {
+            const verScore = this.negamax(depth - 1 - R, beta - 1, beta, ply, false);
+            if (this.stop) return 0;
+            if (verScore >= beta) return beta;
+          } else {
+            return beta;
+          }
+        }
       }
 
       /* Razoring */
@@ -1676,37 +2121,33 @@
         const quietMove = (m.flags & (FLAG_CAPTURE | FLAG_PROMO | FLAG_EP)) === 0;
         const killerMove = quietMove && this.isKillerMove(m, ply);
 
-        /* Late move pruning for quiet moves in low depth */
+        /* Late move pruning */
         if (!isPV && !inChk && quietMove && depth <= 3) {
           const limit = depth === 1 ? 6 : (depth === 2 ? 10 : 16);
           if (moveTried >= limit) continue;
         }
 
-        /* Node futility pruning for quiet moves */
+        /* Node futility pruning */
         if (!isPV && !inChk && quietMove && depth <= 2) {
-          const futMargin = 120 * depth;
-          if (staticEval + futMargin <= alpha) {
-            continue;
-          }
+          if (staticEval + 120 * depth <= alpha) continue;
         }
 
         this.makeMove(m);
         const givesCheck = this.inCheck(this.side);
-        let score;
 
-        const isSingularCandidate = !isPV && !inChk && depth >= 7 &&
-          ttBestEnc && (TranspositionTable.encodeMove(m) === ttBestEnc) && legalIdx === 0;
+        /* Singular extension (verified) */
         let extension = 0;
-        if (isSingularCandidate) {
-          // Lightweight singular extension for strongly preferred TT moves.
-          extension = 1;
+        if (!isPV && !inChk && ttBestEnc && legalIdx === 0 && depth >= 8) {
+          this.undoMove();
+          extension = this._singularExtension(m, depth, beta, ply, ttBestEnc);
+          this.makeMove(m);
+          if (this.stop) { this.undoMove(); return 0; }
         }
 
+        let score;
         if (legalIdx === 0) {
-          /* PV node: full-window */
-          score = -this.negamax(depth - 1 + extension, -beta, -alpha, ply+1, true);
+          score = -this.negamax(depth - 1 + extension, -beta, -alpha, ply + 1, true);
         } else {
-          /* Adaptive LMR: no reduction for captures, checking, and killer moves */
           let reduction = 0;
           if (!isPV && depth >= 3 && legalIdx >= 3 && !inChk && quietMove && !givesCheck && !killerMove) {
             const dTerm = Math.floor(Math.log2(Math.max(2, depth)));
@@ -1716,18 +2157,12 @@
             reduction = Math.min(reduction, depth - 2);
           }
           const newDepth = depth - 1 - reduction + extension;
-
-          /* Zero-window search */
-          score = -this.negamax(newDepth, -alpha-1, -alpha, ply+1, true);
-
-          /* Re-search if LMR failed high */
+          score = -this.negamax(newDepth, -alpha - 1, -alpha, ply + 1, true);
           if (!this.stop && reduction > 0 && score > alpha) {
-            score = -this.negamax(depth - 1 + extension, -alpha-1, -alpha, ply+1, true);
+            score = -this.negamax(depth - 1 + extension, -alpha - 1, -alpha, ply + 1, true);
           }
-
-          /* Re-search full window for PV */
           if (!this.stop && score > alpha && score < beta) {
-            score = -this.negamax(depth - 1 + extension, -beta, -alpha, ply+1, true);
+            score = -this.negamax(depth - 1 + extension, -beta, -alpha, ply + 1, true);
           }
         }
 
@@ -1743,7 +2178,6 @@
         if (score > alpha) {
           alpha = score;
           if (alpha >= beta) {
-            /* Beta cutoff */
             if (!(m.flags & FLAG_CAPTURE)) {
               this.storeKiller(m, ply);
               this.updateHistory(m, depth);
@@ -1753,19 +2187,17 @@
         }
       }
 
-      /* TT store */
-      let flag = 0;                          // exact
-      if (bestScore <= alpha0) flag = -1;    // upper bound
-      else if (bestScore >= beta) flag = 1;  // lower bound
-      this.tt.store(this.hash, depth, bestScore, flag,
-        TranspositionTable.encodeMove(bestMove));
+      let flag = 0;
+      if (bestScore <= alpha0) flag = -1;
+      else if (bestScore >= beta) flag = 1;
+      this.tt.store(this.hash, depth, bestScore, flag, TranspositionTable.encodeMove(bestMove));
 
       return bestScore;
     }
 
     /* ── Time management ── */
     _checkTime() {
-      if ((this.nodes & 1023) === 0) {
+      if ((this.nodes & 2047) === 0) {
         if (this.moveTime > 0 && Date.now() - this.startTime >= this.moveTime) this.stop = true;
         if (this.maxNodes > 0 && this.nodes >= this.maxNodes) this.stop = true;
       }
@@ -1773,7 +2205,7 @@
 
     _strengthProfileFromElo(elo) {
       const e = Math.max(800, Math.min(2800, elo | 0));
-      const t = (e - 800) / 2000; // 0..1
+      const t = (e - 800) / 2000;
       const skill = Math.max(0, Math.min(20, Math.round(t * 20)));
       const depthCap = Math.max(1, Math.min(64, Math.round(2 + t * 16)));
       const nodeCap = Math.max(800, Math.round(1500 + t * t * 800000));
@@ -1791,9 +2223,7 @@
         depthCap = Math.min(depthCap, prof.depthCap);
         nodeCap = nodeCap > 0 ? Math.min(nodeCap, prof.nodeCap) : prof.nodeCap;
       } else if (skill < 20) {
-        // Make SkillLevel effective even without UCI_LimitStrength.
-        // This keeps compatibility with GUIs that only expose "Skill Level".
-        const t = skill / 20; // 0..1
+        const t = skill / 20;
         const softDepthCap = Math.max(2, Math.round(2 + t * 14));
         const softNodeCap = Math.max(1500, Math.round(2500 + t * t * 600000));
         depthCap = Math.min(depthCap, softDepthCap);
@@ -1805,10 +2235,7 @@
 
     applyStrengthPreset(name) {
       const key = String(name || '').trim().toLowerCase();
-      if (!key || key === 'custom') {
-        this.options.StrengthPreset = 'Custom';
-        return;
-      }
+      if (!key || key === 'custom') { this.options.StrengthPreset = 'Custom'; return; }
 
       const map = {
         elo1200: { elo: 1200, skill: 11 },
@@ -1817,7 +2244,6 @@
         elo2200: { elo: 2200, skill: 20 },
         max: { elo: 2800, skill: 20, full: true },
       };
-
       const p = map[key];
       if (!p) return;
 
@@ -1835,15 +2261,379 @@
 
       this.send('info string preset', this.options.StrengthPreset,
         'limit', this.options.UCI_LimitStrength ? 'on' : 'off',
-        'elo', this.options.UCI_Elo,
-        'skill', this.options.SkillLevel);
+        'elo', this.options.UCI_Elo, 'skill', this.options.SkillLevel);
     }
 
+    calcMoveTime(spec) {
+      if (spec.moveTime) return Math.max(1, spec.moveTime - this.options.MoveOverhead);
+      const t   = this.side === WHITE ? (spec.wtime || 0) : (spec.btime || 0);
+      const inc = this.side === WHITE ? (spec.winc || 0)  : (spec.binc || 0);
+      const mtg = spec.movestogo || 30;
+      if (!t) return 5000;
+
+      const overhead = this.options.MoveOverhead | 0;
+      const base = t / Math.max(10, mtg + 2) + inc * 0.6;
+      const emergency = t < 10000 ? t * 0.08 : t * 0.035;
+      let alloc = Math.max(base, emergency) - overhead;
+      const hardCap = t < 3000 ? t * 0.25 : t * 0.45;
+      alloc = Math.min(alloc, hardCap);
+      return Math.max(1, Math.floor(alloc));
+    }
+
+    describeScore(score) {
+      if (Math.abs(score) >= MATE_BOUND) {
+        const mate = score > 0
+          ? Math.ceil((MATE - score) / 2)
+          : -Math.ceil((MATE + score) / 2);
+        return { units: 'mate', value: mate };
+      }
+      return { units: 'cp', value: score | 0 };
+    }
+
+    scoreToWDL(score) {
+      if (score >= MATE_BOUND) return { win: 1000, draw: 0, loss: 0 };
+      if (score <= -MATE_BOUND) return { win: 0, draw: 0, loss: 1000 };
+      const draw = Math.max(0, Math.min(1000, Math.round(WDL_DRAW_COEFF * Math.exp(-Math.abs(score) / WDL_DRAW_SCALE))));
+      const decisive = Math.max(0, 1000 - draw);
+      const winRatio = 1 / (1 + Math.exp(-score / WDL_WIN_SCALE));
+      const win = Math.round(decisive * winRatio);
+      const loss = decisive - win;
+      return { win, draw, loss };
+    }
+
+    estimateACPL(rootLines) {
+      if (!rootLines || rootLines.length < 2) return 0;
+      const best = rootLines[0].score;
+      if (Math.abs(best) >= MATE_BOUND) return 0;
+      let total = 0, count = 0;
+      for (let i = 1; i < rootLines.length; i++) {
+        const s = rootLines[i].score;
+        if (Math.abs(s) >= MATE_BOUND) continue;
+        total += Math.max(0, best - s);
+        count++;
+      }
+      return count ? Math.round(total / count) : 0;
+    }
+
+    pickSkillMove(scoredMoves) {
+      if (!scoredMoves || !scoredMoves.length) return null;
+      const skill = Math.max(0, Math.min(20, this.effectiveSkillLevel | 0));
+      if (skill >= 20 || scoredMoves.length === 1) return scoredMoves[0].m;
+
+      const bestScore = scoredMoves[0].score;
+      const maxDrop = 20 + (20 - skill) * 18;
+      const maxCount = Math.min(scoredMoves.length, 2 + Math.floor((20 - skill) / 3));
+
+      const candidates = [];
+      for (let i = 0; i < maxCount; i++) {
+        const gap = bestScore - scoredMoves[i].score;
+        if (gap <= maxDrop) candidates.push(scoredMoves[i]);
+      }
+      if (!candidates.length) return scoredMoves[0].m;
+
+      const temp = Math.max(0.25, (20 - skill) / 8);
+      const base = 35 + skill * 5;
+      let total = 0;
+      for (const c of candidates) {
+        c._w = Math.exp(-(Math.max(0, bestScore - c.score) / base) * temp);
+        total += c._w;
+      }
+
+      let r = Math.random() * total;
+      for (const c of candidates) {
+        r -= c._w;
+        if (r <= 0) return c.m;
+      }
+      return candidates[0].m;
+    }
+
+    applyRootBlunderGuard(scoredMoves, depth) {
+      if (!scoredMoves || !scoredMoves.length) return;
+      if (depth > 6) {
+        for (const line of scoredMoves) line.pickScore = line.score;
+        return;
+      }
+
+      const rawBest = scoredMoves[0].score;
+      const ultraSafe = depth <= 5;
+      let hasSafeAlt = false;
+
+      for (const line of scoredMoves) {
+        line._hardUnsafe = false;
+        const m = line.m;
+        if (Math.abs(line.score) >= MATE_BOUND) { hasSafeAlt = true; continue; }
+        if (pieceType(m.piece) !== 5) { hasSafeAlt = true; continue; }
+
+        const seeVal = this.see(m);
+        const them = opponent(this.side);
+
+        if (m.flags & FLAG_CAPTURE) {
+          const victimType = pieceType(m.capture) || 0;
+          const hardSee = ultraSafe ? 480 : 280;
+          const hardGap = ultraSafe ? 20 : 40;
+          if (victimType !== 5 && seeVal < hardSee && line.score < rawBest - hardGap) line._hardUnsafe = true;
+          else hasSafeAlt = true;
+        } else {
+          const quietGap = ultraSafe ? 10 : 30;
+          if (this.isSquareAttackedByPawn(m.to, them) && this.isAttacked(m.to, them) && line.score < rawBest - quietGap)
+            line._hardUnsafe = true;
+          else hasSafeAlt = true;
+        }
+
+        if (ultraSafe && (m.flags & FLAG_CAPTURE) && seeVal <= -500 && line.score < rawBest - 15)
+          line._hardUnsafe = true;
+      }
+
+      for (const line of scoredMoves) {
+        let penalty = 0;
+        const m = line.m;
+        if (Math.abs(line.score) < MATE_BOUND) {
+          const seeVal = this.see(m);
+          if (seeVal <= -700) penalty += ultraSafe ? 420 : 220;
+          else if (seeVal <= -350) penalty += ultraSafe ? 180 : 90;
+
+          const moving = m.promo || m.piece;
+          if (pieceType(moving) === 5 && seeVal < 0) penalty += ultraSafe ? 260 : 140;
+
+          if (pieceType(m.piece) === 5 && (m.flags & FLAG_CAPTURE)) {
+            const victimType = pieceType(m.capture) || 0;
+            if (victimType !== 5) {
+              if (seeVal < (ultraSafe ? 420 : 250)) penalty += ultraSafe ? 460 : 260;
+              else if (seeVal < (ultraSafe ? 560 : 400)) penalty += ultraSafe ? 220 : 120;
+            }
+          }
+
+          if (pieceType(m.piece) === 5 && !(m.flags & FLAG_CAPTURE)) {
+            const them = opponent(this.side);
+            if (this.isAttacked(m.to, them)) penalty += ultraSafe ? 260 : 120;
+            if (this.isSquareAttackedByPawn(m.to, them)) penalty += ultraSafe ? 320 : 140;
+          }
+        }
+        if (hasSafeAlt && line._hardUnsafe) penalty += ultraSafe ? 200000 : 100000;
+        line.pickScore = line.score - penalty;
+      }
+
+      scoredMoves.sort((a, b) => (b.pickScore | 0) - (a.pickScore | 0) || (b.score | 0) - (a.score | 0));
+    }
+
+    sendRootInfo(rootLines, depth, elapsed, nps, hashfull, multiPV) {
+      const limit = Math.min(multiPV, rootLines.length);
+      for (let i = 0; i < limit; i++) {
+        const line = rootLines[i];
+        const score = this.describeScore(line.score);
+        const parts = ['info', 'depth', depth, 'seldepth', this.selDepth, 'multipv', i + 1,
+                        'score', score.units, score.value];
+        if (this.options.UCI_ShowWDL) {
+          const wdl = this.scoreToWDL(line.score);
+          parts.push('wdl', wdl.win, wdl.draw, wdl.loss);
+        }
+        parts.push('nodes', this.nodes, 'nps', nps, 'hashfull', hashfull, 'time', elapsed, 'pv', line.pv);
+        this.send(...parts);
+      }
+      if (this.options.UCI_ShowACPL) {
+        this.send('info string acpl', this.estimateACPL(rootLines), 'depth', depth);
+      }
+    }
+
+    /* ── PV extraction ── */
+    pvLine(depth, fmt = 'uci') {
+      const line = [];
+      const seen = new Set();
+      for (let i = 0; i < depth; i++) {
+        const enc = this.tt.getBestMove(this.hash);
+        if (!enc) break;
+        const m = this.findMoveByEncoded(enc);
+        if (!m) break;
+        const key = `${this.hash.lo}:${this.hash.hi}:${enc}`;
+        if (seen.has(key)) break;
+        seen.add(key);
+        line.push(this.formatMove(m, fmt));
+        this.makeMove(m);
+      }
+      for (let i = 0; i < line.length; i++) this.undoMove();
+      return line;
+    }
+
+    /* ── Root search (iterative deepening) ── */
+    search(spec) {
+      this.stop      = false;
+      this.nodes     = 0;
+      this.selDepth  = 0;
+      this.startTime = Date.now();
+      this.moveTime  = this.calcMoveTime(spec);
+      this.selDepthHard = Math.max(0, spec.selDepth | 0);
+      this.evalTrace.fill(0);
+      this.tt.nextEpoch();
+      this.pawnHash.clear();
+
+      const strength = this._resolveSearchStrength(spec);
+      this.maxNodes = strength.nodeCap;
+      this.effectiveSkillLevel = strength.skill;
+
+      this.histTable.fill(0);
+      this.contHist.fill(0);
+      for (const k of this.killers) { k[0] = 0; k[1] = 0; }
+
+      const depthLimit = Math.max(1, Math.min(strength.depthCap, Math.min(64, spec.depth || 64)));
+      const multiPV    = Math.max(1, Math.min(12, (spec.multiPV || this.options.MultiPV) | 0));
+      const outFmt     = this.options.PVFormat === 'san' ? 'san' : 'uci';
+
+      let rootMoves = this.genMoves(false);
+      if (spec.searchMoves && spec.searchMoves.length) {
+        const wanted = new Set(spec.searchMoves);
+        rootMoves = rootMoves.filter(m => wanted.has(this.moveToUci(m)));
+      }
+      if (rootMoves.length === 0) {
+        this.send('bestmove 0000');
+        return;
+      }
+
+      let bestMove    = rootMoves[0];
+      let bestScore   = -INF;
+      let prevScore   = -INF;
+      let finalScored = null;
+      let panicUsed   = false;
+
+      for (let d = 1; d <= depthLimit; d++) {
+        if (this.stop) break;
+
+        let asp = d > 1 ? 25 : INF;
+        let lo  = d > 1 ? Math.max(-INF, prevScore - asp) : -INF;
+        let hi  = d > 1 ? Math.min(INF, prevScore + asp) : INF;
+
+        let scored = [];
+        let prevWindowScored = null;
+
+        let aspTries = 0;
+        aspirationLoop:
+        while (true) {
+          if (++aspTries > 12) { lo = -INF; hi = INF; }
+          scored = [];
+          let alpha = lo;
+          let bestInWindow = -INF;
+
+          const ttEnc = this.tt.getBestMove(this.hash);
+          this.scoreMoves(rootMoves, ttEnc, 0);
+
+          for (let moveIdx = 0; moveIdx < rootMoves.length; moveIdx++) {
+            const m = this.pickNextMove(rootMoves, moveIdx);
+            if (this.stop) break;
+
+            this.makeMove(m);
+            let score;
+
+            if (moveIdx === 0) {
+              score = -this.negamax(d - 1, -hi, -alpha, 1, true);
+            } else {
+              score = -this.negamax(d - 1, -alpha - 1, -alpha, 1, true);
+              if (!this.stop && score > alpha && score < hi) {
+                score = -this.negamax(d - 1, -hi, -alpha, 1, true);
+              }
+            }
+
+            this.undoMove();
+            if (this.stop) break;
+
+            scored.push({ m, score });
+            if (score > bestInWindow) bestInWindow = score;
+
+            if (score > alpha) {
+              alpha = score;
+              if (alpha >= hi) {
+                /* Fail high: preserve partial results and widen */
+                prevWindowScored = scored.slice();
+                asp = Math.min(asp * 2, INF);
+                hi  = Math.min(INF, alpha + asp);
+                lo  = Math.max(-INF, alpha - asp);
+                continue aspirationLoop;
+              }
+            }
+          }
+
+          if (scored.length && bestInWindow <= lo && lo > -INF + 1) {
+            prevWindowScored = scored.slice();
+            asp = Math.min(asp * 2, INF);
+            lo  = Math.max(-INF, bestInWindow - asp);
+            hi  = Math.min(INF, bestInWindow + asp);
+            continue aspirationLoop;
+          }
+          break;
+        }
+
+        /* If search was interrupted and we have no complete results, use previous window's data */
+        if (!scored.length && prevWindowScored && prevWindowScored.length) {
+          scored = prevWindowScored;
+        }
+        if (!scored.length) break;
+
+        scored.sort((a, b) => b.score - a.score);
+        this.applyRootBlunderGuard(scored, d);
+        finalScored = scored;
+        bestMove  = scored[0].m;
+        bestScore = scored[0].score;
+
+        /* Panic time */
+        if (!panicUsed && !spec.moveTime && this.moveTime > 0 && d >= 4 && prevScore > -INF + 1) {
+          const drop = prevScore - bestScore;
+          if (drop >= 80) {
+            const elapsedNow = Date.now() - this.startTime;
+            if (elapsedNow < this.moveTime * 0.7) {
+              const sideTime = this.side === WHITE ? (spec.wtime || 0) : (spec.btime || 0);
+              const maxBudget = sideTime > 0 ? Math.floor(sideTime * 0.8) : Math.floor(this.moveTime * 2);
+              const boosted = Math.min(maxBudget, Math.floor(this.moveTime * 1.35));
+              if (boosted > this.moveTime) {
+                this.moveTime = boosted;
+                panicUsed = true;
+                this.send('info string panic_time drop', drop, 'new_movetime', this.moveTime);
+              }
+            }
+          }
+        }
+        prevScore = bestScore;
+        rootMoves = scored.map(x => x.m);
+
+        const elapsed  = Date.now() - this.startTime;
+        const nps      = elapsed > 0 ? Math.floor(this.nodes * 1000 / elapsed) : this.nodes;
+        const hashfull = this.tt.hashfull();
+
+        const rootLines = [];
+        for (let i = 0; i < scored.length; i++) {
+          const { m, score } = scored[i];
+          const first = this.formatMove(m, outFmt);
+          this.makeMove(m);
+          const pv = [first, ...this.pvLine(Math.max(0, d - 1), outFmt)].join(' ');
+          this.undoMove();
+          rootLines.push({ move: m, score, pv });
+        }
+
+        this.sendRootInfo(rootLines, d, elapsed, nps, hashfull, multiPV);
+
+        for (let i = 0; i < Math.min(multiPV, rootLines.length); i++) {
+          const evalBar = Math.max(0, Math.min(100, 50 + Math.round(rootLines[i].score / 20)));
+          this.send('info string evalbar', evalBar);
+        }
+      }
+
+      const chosenMove = this.pickSkillMove(finalScored || [{ m: bestMove, score: bestScore }]) || bestMove;
+      this.bestMove = chosenMove;
+      const bestMoveUci = this.moveToUci(chosenMove);
+      let ponder = '';
+      if ((this.options.Ponder || spec.ponder) && chosenMove) {
+        this.makeMove(chosenMove);
+        const line = this.pvLine(1);
+        this.undoMove();
+        ponder = line[0] || '';
+      }
+      if (ponder) this.send('bestmove', bestMoveUci, 'ponder', ponder);
+      else this.send('bestmove', bestMoveUci);
+      this.pondering = false;
+    }
+
+    /* ── Bench ── */
     runBench(depth = 6) {
       const d = Math.max(1, Math.min(12, depth | 0));
       const savedFen = this.getFen();
       const savedAnalyze = this.options.UCI_AnalyseMode;
-
       this.options.UCI_AnalyseMode = true;
       let totalNodes = 0;
       const benchStart = Date.now();
@@ -1859,7 +2649,9 @@
         this.selDepthHard = 0;
         this.evalTrace.fill(0);
         this.tt.nextEpoch();
+        this.pawnHash.clear();
         this.histTable.fill(0);
+        this.contHist.fill(0);
         for (const k of this.killers) { k[0] = 0; k[1] = 0; }
 
         let rootMoves = this.genMoves(false);
@@ -1881,41 +2673,29 @@
             this.makeMove(m);
             const score = -this.negamax(curDepth - 1, -beta, -alpha, 1, true);
             this.undoMove();
-            if (score > bestScore) {
-              bestScore = score;
-              bestMove = m;
-            }
+            if (score > bestScore) { bestScore = score; bestMove = m; }
             if (score > alpha) alpha = score;
           }
 
           const bi = rootMoves.indexOf(bestMove);
-          if (bi > 0) {
-            const t = rootMoves[0];
-            rootMoves[0] = rootMoves[bi];
-            rootMoves[bi] = t;
-          }
+          if (bi > 0) { const t = rootMoves[0]; rootMoves[0] = rootMoves[bi]; rootMoves[bi] = t; }
         }
 
         const posTime = Math.max(1, Date.now() - this.startTime);
         totalNodes += this.nodes;
-        this.send('info string benchpos', i + 1,
-          'nodes', this.nodes,
-          'time', posTime,
-          'nps', Math.floor(this.nodes * 1000 / posTime),
-          'bestmove', this.moveToUci(bestMove));
+        this.send('info string benchpos', i + 1, 'nodes', this.nodes, 'time', posTime,
+          'nps', Math.floor(this.nodes * 1000 / posTime), 'bestmove', this.moveToUci(bestMove));
       }
 
       const totalTime = Math.max(1, Date.now() - benchStart);
-      this.send('info string bench total', 'nodes', totalNodes,
-        'time', totalTime,
-        'nps', Math.floor(totalNodes * 1000 / totalTime),
-        'depth', d,
-        'positions', BENCH_FENS.length);
+      this.send('info string bench total nodes', totalNodes, 'time', totalTime,
+        'nps', Math.floor(totalNodes * 1000 / totalTime), 'depth', d, 'positions', BENCH_FENS.length);
 
       this.setFen(savedFen);
       this.options.UCI_AnalyseMode = savedAnalyze;
     }
 
+    /* ── Perft ── */
     perft(depth) {
       if (depth <= 0) return 1;
       const moves = this.genMoves(false);
@@ -1934,7 +2714,6 @@
       const start = Date.now();
       const moves = this.genMoves(false);
       let total = 0;
-
       if (d === 1) {
         total = moves.length;
       } else {
@@ -1946,7 +2725,6 @@
           if (divide) this.send('info string perft', this.moveToUci(m), n);
         }
       }
-
       const t = Math.max(1, Date.now() - start);
       this.send('info string perft total', total, 'depth', d, 'time', t, 'nps', Math.floor(total * 1000 / t));
       return total;
@@ -1974,420 +2752,6 @@
       this.send('info string perftsuite result', allOk ? 'PASS' : 'FAIL', 'time', Math.max(1, Date.now() - suiteStart));
     }
 
-    calcMoveTime(spec) {
-      if (spec.moveTime) {
-        return Math.max(1, spec.moveTime - this.options.MoveOverhead);
-      }
-      const t   = this.side === WHITE ? (spec.wtime||0) : (spec.btime||0);
-      const inc = this.side === WHITE ? (spec.winc||0)  : (spec.binc||0);
-      const mtg = spec.movestogo || 30;
-      if (!t) return 5000;
-
-      // Stable time allocation with emergency floor and hard upper cap.
-      const overhead = this.options.MoveOverhead | 0;
-      const base = t / Math.max(10, mtg + 2) + inc * 0.6;
-      const emergency = t < 10000 ? t * 0.08 : t * 0.035;
-      let alloc = Math.max(base, emergency) - overhead;
-
-      const hardCap = t < 3000 ? t * 0.25 : t * 0.45;
-      alloc = Math.min(alloc, hardCap);
-      return Math.max(1, Math.floor(alloc));
-    }
-
-    describeScore(score) {
-      if (Math.abs(score) >= MATE - 200) {
-        const mate = score > 0
-          ? Math.ceil((MATE - score) / 2)
-          : -Math.ceil((MATE + score) / 2);
-        return { units: 'mate', value: mate };
-      }
-      return { units: 'cp', value: score | 0 };
-    }
-
-    scoreToWDL(score) {
-      if (score >= MATE - 200) return { win: 1000, draw: 0, loss: 0 };
-      if (score <= -MATE + 200) return { win: 0, draw: 0, loss: 1000 };
-
-      const draw = Math.max(0, Math.min(1000, Math.round(220 * Math.exp(-Math.abs(score) / 280))));
-      const decisive = Math.max(0, 1000 - draw);
-      const winRatio = 1 / (1 + Math.exp(-score / 180));
-      const win = Math.round(decisive * winRatio);
-      const loss = decisive - win;
-      return { win, draw, loss };
-    }
-
-    estimateACPL(rootLines) {
-      if (!rootLines || rootLines.length < 2) return 0;
-      const best = rootLines[0].score;
-      if (Math.abs(best) >= MATE - 200) return 0;
-      let total = 0;
-      let count = 0;
-      for (let i = 1; i < rootLines.length; i++) {
-        const s = rootLines[i].score;
-        if (Math.abs(s) >= MATE - 200) continue;
-        total += Math.max(0, best - s);
-        count++;
-      }
-      return count ? Math.round(total / count) : 0;
-    }
-
-    getPonderMove(rootLines) {
-      if (!rootLines || !rootLines.length || !rootLines[0].pv) return '';
-      const pv = rootLines[0].pv.trim().split(/\s+/);
-      return pv.length >= 2 ? pv[1] : '';
-    }
-
-    pickSkillMove(scoredMoves) {
-      if (!scoredMoves || !scoredMoves.length) return null;
-      const skill = Math.max(0, Math.min(20, this.effectiveSkillLevel | 0));
-      if (skill >= 20 || scoredMoves.length === 1) return scoredMoves[0].m;
-
-      const bestScore = scoredMoves[0].score;
-      const maxDrop = 20 + (20 - skill) * 18;
-      const maxCount = Math.min(scoredMoves.length, 2 + Math.floor((20 - skill) / 3));
-
-      const candidates = [];
-      for (let i = 0; i < maxCount; i++) {
-        const line = scoredMoves[i];
-        const gap = bestScore - line.score;
-        if (gap <= maxDrop) candidates.push(line);
-      }
-      if (!candidates.length) return scoredMoves[0].m;
-
-      // Temperature-like sampling: lower skill explores more suboptimal but still reasonable moves.
-      const temp = Math.max(0.25, (20 - skill) / 8);
-      const base = 35 + skill * 5;
-      let total = 0;
-      for (const c of candidates) {
-        const gap = Math.max(0, bestScore - c.score);
-        c._w = Math.exp(-(gap / base) * temp);
-        total += c._w;
-      }
-
-      let r = Math.random() * total;
-      for (const c of candidates) {
-        r -= c._w;
-        if (r <= 0) return c.m;
-      }
-      return candidates[0].m;
-    }
-
-    applyRootBlunderGuard(scoredMoves, depth) {
-      if (!scoredMoves || !scoredMoves.length) return;
-      if (depth > 6) {
-        for (const line of scoredMoves) line.pickScore = line.score;
-        return;
-      }
-
-      const rawBest = scoredMoves[0].score;
-      const ultraSafe = depth <= 5;
-      let hasSafeAlt = false;
-
-      // Semi-forced queen safety rule at shallow root:
-      // if there are safe alternatives, strongly demote suspicious queen moves.
-      for (const line of scoredMoves) {
-        line._hardUnsafe = false;
-        const m = line.m;
-        if (Math.abs(line.score) >= MATE - 500) { hasSafeAlt = true; continue; }
-        if (!(m.piece === WQ || m.piece === BQ)) { hasSafeAlt = true; continue; }
-
-        const see = this.see(m);
-        const them = opponent(this.side);
-
-        if (m.flags & FLAG_CAPTURE) {
-          const victimType = (m.capture & 7) || 0;
-          // Queen-for-rook/minor/pawn with poor SEE is usually a practical blunder.
-          const hardSee = ultraSafe ? 480 : 280;
-          const hardGap = ultraSafe ? 20 : 40;
-          if (victimType !== 5 && see < hardSee && line.score < rawBest - hardGap) {
-            line._hardUnsafe = true;
-          } else {
-            hasSafeAlt = true;
-          }
-        } else {
-          // Quiet queen move into pawn-attacked square is suspicious unless it is clearly best.
-          const quietGap = ultraSafe ? 10 : 30;
-          if (this.isSquareAttackedByPawn(m.to, them) && this.isAttacked(m.to, them) && line.score < rawBest - quietGap) {
-            line._hardUnsafe = true;
-          } else {
-            hasSafeAlt = true;
-          }
-        }
-
-        // Super-aggressive shallow safety: avoid obviously losing exchanges when alternatives exist.
-        if (ultraSafe && (m.flags & FLAG_CAPTURE) && see <= -500 && line.score < rawBest - 15) {
-          line._hardUnsafe = true;
-        }
-      }
-
-      for (const line of scoredMoves) {
-        let penalty = 0;
-        const m = line.m;
-        if (Math.abs(line.score) < MATE - 500) {
-          const see = this.see(m);
-          if (see <= -700) penalty += ultraSafe ? 420 : 220;
-          else if (see <= -350) penalty += ultraSafe ? 180 : 90;
-
-          const moving = m.promo || m.piece;
-          if ((moving === WQ || moving === BQ) && see < 0) penalty += ultraSafe ? 260 : 140;
-
-          // Extra root safety: avoid queen-for-rook/minor/pawn trades unless clearly justified.
-          if ((m.piece === WQ || m.piece === BQ) && (m.flags & FLAG_CAPTURE)) {
-            const victimType = (m.capture & 7) || 0;
-            if (victimType !== 5) {
-              if (see < (ultraSafe ? 420 : 250)) penalty += ultraSafe ? 460 : 260;
-              else if (see < (ultraSafe ? 560 : 400)) penalty += ultraSafe ? 220 : 120;
-            }
-          }
-
-          // Discourage quiet queen moves into attacked squares at shallow root depths.
-          if ((m.piece === WQ || m.piece === BQ) && !(m.flags & FLAG_CAPTURE)) {
-            const them = opponent(this.side);
-            if (this.isAttacked(m.to, them)) penalty += ultraSafe ? 260 : 120;
-            if (this.isSquareAttackedByPawn(m.to, them)) penalty += ultraSafe ? 320 : 140;
-          }
-        }
-        if (hasSafeAlt && line._hardUnsafe) penalty += ultraSafe ? 200000 : 100000;
-        line.pickScore = line.score - penalty;
-      }
-
-      scoredMoves.sort((a, b) => {
-        const d = (b.pickScore | 0) - (a.pickScore | 0);
-        if (d !== 0) return d;
-        return (b.score | 0) - (a.score | 0);
-      });
-    }
-
-    sendRootInfo(rootLines, depth, elapsed, nps, hashfull, multiPV) {
-      const limit = Math.min(multiPV, rootLines.length);
-      for (let i = 0; i < limit; i++) {
-        const line = rootLines[i];
-        const score = this.describeScore(line.score);
-        const parts = [
-          'info',
-          'depth', depth,
-          'seldepth', this.selDepth,
-          'multipv', i + 1,
-          'score', score.units, score.value,
-        ];
-
-        if (this.options.UCI_ShowWDL) {
-          const wdl = this.scoreToWDL(line.score);
-          parts.push('wdl', wdl.win, wdl.draw, wdl.loss);
-        }
-
-        parts.push('nodes', this.nodes, 'nps', nps, 'hashfull', hashfull, 'time', elapsed, 'pv', line.pv);
-        this.send(...parts);
-      }
-
-      if (this.options.UCI_ShowACPL) {
-        this.send('info string acpl', this.estimateACPL(rootLines), 'depth', depth);
-      }
-    }
-
-    /* ── PV extraction ── */
-    pvLine(depth, fmt = 'uci') {
-      const line = [];
-      const seen  = new Set();
-      for (let i = 0; i < depth; i++) {
-        const enc = this.tt.getBestMove(this.hash);
-        if (!enc) break;
-        const m = this.findMoveByEncoded(enc);
-        if (!m) break;
-        const key = this.hash + ':' + enc;
-        if (seen.has(key)) break;
-        seen.add(key);
-        line.push(this.formatMove(m, fmt));
-        this.makeMove(m);
-      }
-      for (let i = 0; i < line.length; i++) this.undoMove();
-      return line;
-    }
-
-    /* ── Root search (iterative deepening) ── */
-    search(spec) {
-      this.stop      = false;
-      this.nodes     = 0;
-      this.selDepth  = 0;
-      this.startTime = Date.now();
-      this.moveTime  = this.calcMoveTime(spec);
-      this.selDepthHard = Math.max(0, spec.selDepth | 0);
-      this.evalTrace.fill(0);
-      this.tt.nextEpoch();
-
-      const strength = this._resolveSearchStrength(spec);
-      this.maxNodes = strength.nodeCap;
-      this.effectiveSkillLevel = strength.skill;
-
-      /* Reset history heuristic and killers each search */
-      this.histTable.fill(0);
-      this.contHist.fill(0);
-      for (const k of this.killers) { k[0] = 0; k[1] = 0; }
-
-      const depthLimit = Math.max(1, Math.min(strength.depthCap, Math.min(64, spec.depth || 64)));
-      const multiPV    = Math.max(1, Math.min(12, (spec.multiPV || this.options.MultiPV) | 0));
-      const outFmt     = this.options.PVFormat === 'san' ? 'san' : 'uci';
-
-      let rootMoves    = this.genMoves(false);
-      if (spec.searchMoves && spec.searchMoves.length) {
-        const wanted = new Set(spec.searchMoves);
-        rootMoves = rootMoves.filter((m) => wanted.has(this.moveToUci(m)));
-      }
-      if (rootMoves.length === 0) {
-        this.send('bestmove 0000');
-        return;
-      }
-
-      let bestMove     = rootMoves[0];
-      let bestScore    = -INF;
-      let prevScore    = -INF;
-      let finalScored  = null;
-      let panicUsed    = false;
-
-      for (let d = 1; d <= depthLimit; d++) {
-        if (this.stop) break;
-
-        /* Aspiration window */
-        let asp   = d > 1 ? 25 : INF;
-        let lo    = d > 1 ? Math.max(-INF, prevScore - asp) : -INF;
-        let hi    = d > 1 ? Math.min( INF, prevScore + asp) : INF;
-
-        const scored = [];
-
-        /* ---- aspiration loop ---- */
-        let aspTries = 0;
-        aspirationLoop:
-        while (true) {
-          if (++aspTries > 12) {
-            // Safety guard to avoid pathological re-search loops.
-            lo = -INF;
-            hi = INF;
-          }
-          scored.length = 0;
-          let alpha = lo;
-          let bestInWindow = -INF;
-
-          /* Order root moves: best move first */
-          const ttEnc = this.tt.getBestMove(this.hash);
-          this.scoreMoves(rootMoves, ttEnc, 0);
-
-          for (let moveIdx = 0; moveIdx < rootMoves.length; moveIdx++) {
-            const m = this.pickNextMove(rootMoves, moveIdx);
-            if (this.stop) break;
-
-            this.makeMove(m);
-            let score;
-
-            if (moveIdx === 0) {
-              score = -this.negamax(d-1, -hi, -alpha, 1, true);
-            } else {
-              score = -this.negamax(d-1, -alpha-1, -alpha, 1, true);
-              if (!this.stop && score > alpha && score < hi) {
-                score = -this.negamax(d-1, -hi, -alpha, 1, true);
-              }
-            }
-
-            this.undoMove();
-            if (this.stop) break;
-
-            scored.push({ m, score });
-            if (score > bestInWindow) bestInWindow = score;
-
-            if (score > alpha) {
-              alpha = score;
-              if (alpha >= hi) {
-                /* Fail high: widen upper bound */
-                asp = Math.min(asp * 2, INF);
-                hi  = Math.min(INF, alpha + asp);
-                lo  = Math.max(-INF, alpha - asp);
-                continue aspirationLoop;
-              }
-            }
-          }
-
-          if (scored.length && bestInWindow <= lo && lo > -INF + 1) {
-            /* Fail low: widen lower bound */
-            asp = Math.min(asp * 2, INF);
-            lo  = Math.max(-INF, bestInWindow - asp);
-            hi  = Math.min(INF, bestInWindow + asp);
-            continue aspirationLoop;
-          }
-          break;
-        }
-        /* ---- end aspiration loop ---- */
-
-        if (!scored.length) break;
-
-        /* Sort final results, then apply a shallow root blunder guard. */
-        scored.sort((a, b) => b.score - a.score);
-        this.applyRootBlunderGuard(scored, d);
-        finalScored = scored;
-        bestMove  = scored[0].m;
-        bestScore = scored[0].score;
-
-        // Panic time manager: if eval collapses on deeper iteration, think longer once.
-        if (!panicUsed && !spec.moveTime && this.moveTime > 0 && d >= 4 && prevScore > -INF + 1) {
-          const drop = prevScore - bestScore;
-          if (drop >= 80) {
-            const elapsedNow = Date.now() - this.startTime;
-            if (elapsedNow < this.moveTime * 0.7) {
-              const sideTime = this.side === WHITE ? (spec.wtime || 0) : (spec.btime || 0);
-              const maxBudget = sideTime > 0 ? Math.floor(sideTime * 0.8) : Math.floor(this.moveTime * 2);
-              const boosted = Math.min(maxBudget, Math.floor(this.moveTime * 1.35));
-              if (boosted > this.moveTime) {
-                this.moveTime = boosted;
-                panicUsed = true;
-                this.send('info string panic_time', 'drop', drop, 'new_movetime', this.moveTime);
-              }
-            }
-          }
-        }
-        prevScore = bestScore;
-
-        /* Re-order rootMoves to match scored order for next iteration */
-        rootMoves = scored.map(x => x.m);
-
-        const elapsed = Date.now() - this.startTime;
-        const nps     = elapsed > 0 ? Math.floor(this.nodes * 1000 / elapsed) : this.nodes;
-        const hashfull = this.tt.hashfull();
-
-        /* Build root lines with PV */
-        const rootLines = [];
-        for (let i = 0; i < scored.length; i++) {
-          const { m, score } = scored[i];
-          const first = this.formatMove(m, outFmt);
-          this.makeMove(m);
-          const pv = [first, ...this.pvLine(Math.max(0, d-1), outFmt)].join(' ');
-          this.undoMove();
-          rootLines.push({ move: m, score, pv });
-        }
-
-        this.sendRootInfo(rootLines, d, elapsed, nps, hashfull, multiPV);
-
-        /* Keep simple evalbar stream for UI integrations that depend on it */
-        for (let i = 0; i < Math.min(multiPV, rootLines.length); i++) {
-          const score = rootLines[i].score;
-          /* evalbar: 0-100, 50 = equal */
-          const evalBar = Math.max(0, Math.min(100, 50 + Math.round(score / 20)));
-          this.send('info string evalbar', evalBar);
-        }
-      }
-
-      const chosenMove = this.pickSkillMove(finalScored || [{ m: bestMove, score: bestScore }]) || bestMove;
-      this.bestMove = chosenMove;
-      const bestMoveUci = this.moveToUci(chosenMove);
-      let ponder = '';
-      if ((this.options.Ponder || spec.ponder) && chosenMove) {
-        this.makeMove(chosenMove);
-        const line = this.pvLine(1);
-        this.undoMove();
-        ponder = line[0] || '';
-      }
-      if (ponder) this.send('bestmove', bestMoveUci, 'ponder', ponder);
-      else this.send('bestmove', bestMoveUci);
-      this.pondering = false;
-    }
-
     /* ── UCI command handlers ── */
     handlePosition(tokens) {
       let i = 1;
@@ -2411,32 +2775,30 @@
 
     handleGo(tokens) {
       const spec = {
-        depth:0, moveTime:0,
-        wtime:0, btime:0, winc:0, binc:0, movestogo:30,
-        multiPV:0, infinite:false, ponder:false,
-        maxNodes:0, selDepth:0, searchMoves:[],
+        depth: 0, moveTime: 0,
+        wtime: 0, btime: 0, winc: 0, binc: 0, movestogo: 30,
+        multiPV: 0, infinite: false, ponder: false,
+        maxNodes: 0, selDepth: 0, searchMoves: [],
       };
-      const stopWords = new Set(['searchmoves','ponder','wtime','btime','winc','binc','movestogo','depth','nodes','mate','movetime','infinite','multipv','seldepth']);
+      const stopWords = new Set(['searchmoves','ponder','wtime','btime','winc','binc','movestogo',
+                                  'depth','nodes','mate','movetime','infinite','multipv','seldepth']);
       for (let i = 1; i < tokens.length; i++) {
-        const t = tokens[i], v = Number(tokens[i+1]);
-        if (t==='infinite')   { spec.infinite=true; }
-        if (t==='ponder')     { spec.ponder=true; }
-        if (t==='depth')      { spec.depth=v; }
-        if (t==='movetime')   { spec.moveTime=v; }
-        if (t==='nodes')      { spec.maxNodes=v; }
-        if (t==='seldepth')   { spec.selDepth=v; }
-        if (t==='wtime')      { spec.wtime=v; }
-        if (t==='btime')      { spec.btime=v; }
-        if (t==='winc')       { spec.winc=v; }
-        if (t==='binc')       { spec.binc=v; }
-        if (t==='movestogo')  { spec.movestogo=v; }
-        if (t==='multipv')    { spec.multiPV=v; }
+        const t = tokens[i], v = Number(tokens[i + 1]);
+        if (t === 'infinite')  spec.infinite = true;
+        if (t === 'ponder')    spec.ponder = true;
+        if (t === 'depth')     spec.depth = v;
+        if (t === 'movetime')  spec.moveTime = v;
+        if (t === 'nodes')     spec.maxNodes = v;
+        if (t === 'seldepth')  spec.selDepth = v;
+        if (t === 'wtime')     spec.wtime = v;
+        if (t === 'btime')     spec.btime = v;
+        if (t === 'winc')      spec.winc = v;
+        if (t === 'binc')      spec.binc = v;
+        if (t === 'movestogo') spec.movestogo = v;
+        if (t === 'multipv')   spec.multiPV = v;
         if (t === 'searchmoves') {
           let j = i + 1;
-          while (j < tokens.length && !stopWords.has(tokens[j])) {
-            spec.searchMoves.push(tokens[j]);
-            j++;
-          }
+          while (j < tokens.length && !stopWords.has(tokens[j])) spec.searchMoves.push(tokens[j++]);
           i = j - 1;
         }
       }
@@ -2446,81 +2808,69 @@
       if (!spec.depth) spec.depth = 64;
       this.lastGoSpec = spec;
       this.pondering = !!spec.ponder;
+
+      /* Use MessageChannel for minimal-latency async dispatch */
       if (this.searchTimer) clearTimeout(this.searchTimer);
-      this.searchTimer = setTimeout(() => {
-        this.searchTimer = null;
-        try {
-          this.search(spec);
-        } catch (err) {
-          const msg = err && err.message ? err.message : String(err);
-          this.send('info string error search', msg);
-          this.send('bestmove 0000');
-        }
-      }, 0);
+      if (typeof MessageChannel !== 'undefined') {
+        const ch = new MessageChannel();
+        ch.port1.onmessage = () => {
+          try { this.search(spec); }
+          catch (err) {
+            this.send('info string error search', err && err.message ? err.message : String(err));
+            this.send('bestmove 0000');
+          }
+        };
+        ch.port2.postMessage(null);
+      } else {
+        this.searchTimer = setTimeout(() => {
+          this.searchTimer = null;
+          try { this.search(spec); }
+          catch (err) {
+            this.send('info string error search', err && err.message ? err.message : String(err));
+            this.send('bestmove 0000');
+          }
+        }, 0);
+      }
     }
 
     handleSetOption(tokens) {
       const ni = tokens.indexOf('name');
       const vi = tokens.indexOf('value');
       if (ni < 0) return;
-      const name  = tokens.slice(ni+1, vi>-1?vi:tokens.length).join(' ');
-      const value = vi>-1 ? tokens.slice(vi+1).join(' ') : '';
-      if (name === 'MultiPV') {
-        this.options.MultiPV = Math.max(1, Math.min(12, +value || 1));
-        return;
-      }
-      if (name === 'Skill Level') {
-        const parsed = Number(value);
-        this.options.SkillLevel = Number.isFinite(parsed)
-          ? Math.max(0, Math.min(20, parsed | 0))
-          : 20;
-        return;
-      }
-      if (name === 'Strength Preset') {
-        this.applyStrengthPreset(value);
-        return;
-      }
-      if (name === 'Ponder') {
-        this.options.Ponder = BOOL_RE.test(value.trim());
-        return;
-      }
-      if (name === 'Move Overhead') {
-        this.options.MoveOverhead = Math.max(0, Math.min(10000, +value || 0));
-        return;
-      }
-      if (name === 'UCI_AnalyseMode') {
-        this.options.UCI_AnalyseMode = BOOL_RE.test(value.trim());
-        return;
-      }
-      if (name === 'UCI_LimitStrength') {
-        this.options.UCI_LimitStrength = BOOL_RE.test(value.trim());
-        return;
-      }
-      if (name === 'UCI_Elo') {
-        this.options.UCI_Elo = Math.max(800, Math.min(2800, +value || 2000));
-        return;
-      }
-      if (name === 'UCI_ShowWDL') {
-        this.options.UCI_ShowWDL = BOOL_RE.test(value.trim());
-        return;
-      }
-      if (name === 'UCI_ShowACPL') {
-        this.options.UCI_ShowACPL = BOOL_RE.test(value.trim());
-        return;
-      }
-      if (name === 'PVFormat') {
-        this.options.PVFormat = String(value).trim().toLowerCase() === 'san' ? 'san' : 'uci';
-        return;
-      }
-      if (name === 'Clear Hash') {
-        this.tt.clear();
-        return;
-      }
-      if (name === 'Hash') {
-        const mb = Math.max(MIN_HASH_MB, Math.min(MAX_HASH_MB, +value || DEFAULT_HASH_MB));
-        this.options.Hash = mb;
-        this.tt.resize(mb);
-        return;
+      const name  = tokens.slice(ni + 1, vi > -1 ? vi : tokens.length).join(' ');
+      const value = vi > -1 ? tokens.slice(vi + 1).join(' ') : '';
+
+      switch (name) {
+        case 'MultiPV':
+          this.options.MultiPV = Math.max(1, Math.min(12, +value || 1)); break;
+        case 'Skill Level':
+          this.options.SkillLevel = Math.max(0, Math.min(20, +value | 0)); break;
+        case 'Strength Preset':
+          this.applyStrengthPreset(value); break;
+        case 'Ponder':
+          this.options.Ponder = BOOL_RE.test(value.trim()); break;
+        case 'Move Overhead':
+          this.options.MoveOverhead = Math.max(0, Math.min(10000, +value || 0)); break;
+        case 'UCI_AnalyseMode':
+          this.options.UCI_AnalyseMode = BOOL_RE.test(value.trim()); break;
+        case 'UCI_LimitStrength':
+          this.options.UCI_LimitStrength = BOOL_RE.test(value.trim()); break;
+        case 'UCI_Elo':
+          this.options.UCI_Elo = Math.max(800, Math.min(2800, +value || 2000)); break;
+        case 'UCI_ShowWDL':
+          this.options.UCI_ShowWDL = BOOL_RE.test(value.trim()); break;
+        case 'UCI_ShowACPL':
+          this.options.UCI_ShowACPL = BOOL_RE.test(value.trim()); break;
+        case 'PVFormat':
+          this.options.PVFormat = String(value).trim().toLowerCase() === 'san' ? 'san' : 'uci'; break;
+        case 'Clear Hash':
+          this.tt.clear(); this.pawnHash.clear(); break;
+        case 'Hash': {
+          const mb = Math.max(MIN_HASH_MB, Math.min(MAX_HASH_MB, +value || DEFAULT_HASH_MB));
+          this.options.Hash = mb;
+          this.tt.resize(mb);
+          break;
+        }
       }
     }
 
@@ -2528,18 +2878,12 @@
       const tokens = line.trim().split(/\s+/);
       if (!tokens[0]) return;
       let cmd = tokens[0];
-      if (cmd === 'u') cmd = 'ucinewgame';
-      if (cmd === 'q') cmd = 'quit';
-      if (cmd === 'b') cmd = 'board';
-      if (cmd === 'e') cmd = 'eval';
-      if (cmd === 'p') {
-        cmd = 'position';
-        if (tokens[1] === 's') tokens[1] = 'startpos';
-      }
-      if (cmd === 'g') {
-        cmd = 'go';
-        if (tokens[1] === 'd') tokens[1] = 'depth';
-      }
+
+      /* Short aliases */
+      const aliases = { u:'ucinewgame', q:'quit', b:'board', e:'eval' };
+      if (aliases[cmd]) cmd = aliases[cmd];
+      if (cmd === 'p') { cmd = 'position'; if (tokens[1] === 's') tokens[1] = 'startpos'; }
+      if (cmd === 'g') { cmd = 'go'; if (tokens[1] === 'd') tokens[1] = 'depth'; }
 
       switch (cmd) {
         case 'uci':
@@ -2566,9 +2910,10 @@
           break;
         case 'ucinewgame':
           this.tt.clear();
+          this.pawnHash.clear();
           this.histTable.fill(0);
           this.contHist.fill(0);
-          for (const k of this.killers) { k[0]=0; k[1]=0; }
+          for (const k of this.killers) { k[0] = 0; k[1] = 0; }
           this.setFen(START_FEN);
           break;
         case 'position':
@@ -2579,10 +2924,7 @@
           break;
         case 'stop':
           this.stop = true;
-          if (this.searchTimer) {
-            clearTimeout(this.searchTimer);
-            this.searchTimer = null;
-          }
+          if (this.searchTimer) { clearTimeout(this.searchTimer); this.searchTimer = null; }
           break;
         case 'ponderhit':
           if (this.pondering && this.lastGoSpec) {
@@ -2605,8 +2947,7 @@
           break;
         }
         case 'perft': {
-          let d = 4;
-          let divide = false;
+          let d = 4, divide = false;
           if (tokens[1] === 'depth' && tokens[2]) d = Number(tokens[2]) || 4;
           else if (tokens[1]) d = Number(tokens[1]) || 4;
           if (tokens.includes('divide')) divide = true;
@@ -2643,7 +2984,7 @@
   /* ── Bootstrap ── */
   const engine = new Engine();
   self.onmessage = (e) => {
-    const lines = String(e.data||'').split(/\r?\n/);
+    const lines = String(e.data || '').split(/\r?\n/);
     for (const ln of lines) {
       const l = ln.trim();
       if (!l) continue;
@@ -2651,7 +2992,8 @@
         engine.command(l);
       } catch (err) {
         const msg = err && err.message ? err.message : String(err);
-        engine.send('info string error command', msg, 'line', l);
+        const stack = err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : '';
+        engine.send('info string error command', msg, stack ? ('trace: ' + stack) : '', 'line', l);
       }
     }
   };
