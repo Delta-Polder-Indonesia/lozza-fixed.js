@@ -1952,6 +1952,34 @@
       return candidates[0].m;
     }
 
+    applyRootBlunderGuard(scoredMoves, depth) {
+      if (!scoredMoves || !scoredMoves.length) return;
+      if (depth > 6) {
+        for (const line of scoredMoves) line.pickScore = line.score;
+        return;
+      }
+
+      for (const line of scoredMoves) {
+        let penalty = 0;
+        const m = line.m;
+        if (Math.abs(line.score) < MATE - 500) {
+          const see = this.see(m);
+          if (see <= -700) penalty += 220;
+          else if (see <= -350) penalty += 90;
+
+          const moving = m.promo || m.piece;
+          if ((moving === WQ || moving === BQ) && see < 0) penalty += 140;
+        }
+        line.pickScore = line.score - penalty;
+      }
+
+      scoredMoves.sort((a, b) => {
+        const d = (b.pickScore | 0) - (a.pickScore | 0);
+        if (d !== 0) return d;
+        return (b.score | 0) - (a.score | 0);
+      });
+    }
+
     sendRootInfo(rootLines, depth, elapsed, nps, hashfull, multiPV) {
       const limit = Math.min(multiPV, rootLines.length);
       for (let i = 0; i < limit; i++) {
@@ -2126,8 +2154,9 @@
 
         if (!scored.length) break;
 
-        /* Sort final results */
+        /* Sort final results, then apply a shallow root blunder guard. */
         scored.sort((a, b) => b.score - a.score);
+        this.applyRootBlunderGuard(scored, d);
         finalScored = scored;
         bestMove  = scored[0].m;
         bestScore = scored[0].score;
@@ -2252,7 +2281,10 @@
         return;
       }
       if (name === 'Skill Level') {
-        this.options.SkillLevel = Math.max(0, Math.min(20, +value || 0));
+        const parsed = Number(value);
+        this.options.SkillLevel = Number.isFinite(parsed)
+          ? Math.max(0, Math.min(20, parsed | 0))
+          : 20;
         return;
       }
       if (name === 'Ponder') {
