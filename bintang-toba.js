@@ -1868,13 +1868,6 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
     var pvUciStr = board.getPVStr(node,move,depth,UCI_FMT).trim();
     rootMoves.push(this.makeRootMove(move, score, depth, pvStr, pvUciStr));
 
-    // Tambahan: kirim rantai PV dalam format UCI
-    this.uci.send(
-      "info depth " + depth +
-      " score cp " + score +
-      " pv " + pvUciStr
-    );
-
     if (score > bestScore) {
       if (score > alpha) {
         alpha = score;
@@ -1898,6 +1891,17 @@ lozChess.prototype.search = function (node, depth, turn, alpha, beta) {
   });
 
   this.stats.rootMoves = rootMoves;
+
+  // === Tambahan: kirim PV hanya sekali per depth, best line ===
+  if (rootMoves.length > 0) {
+    this.uci.send(
+      "info depth " + depth +
+      " seldepth " + depth + // bisa diganti nilai seldepth sebenarnya
+      " score cp " + rootMoves[0].score +
+      " nodes " + this.stats.nodes +
+      " pv " + rootMoves[0].pvUci
+    );
+  }
 
   if (numLegalMoves == 1)
     this.stats.timeOut = 1;
