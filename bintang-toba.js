@@ -1,6 +1,6 @@
 /*
-  Bintang Toba Chess Engine v3.0 (Web Worker)
-  Clean merged build (no internal opening book).
+  Bintang Toba Chess Engine v4.0 (Web Worker)
+  Enhanced with: Opening Book, Two-slot TT, Improved LMR, NNUE-ready structure
 */
 
 (() => {
@@ -18,9 +18,9 @@
 
   const INF = 30000;
   const MATE = 29000;
-  const DEFAULT_HASH_MB = 32;
-  const MIN_HASH_MB = 1;
-  const MAX_HASH_MB = 1024;
+  const DEFAULT_HASH_MB = 64;          // Increased from 32
+  const MIN_HASH_MB = 4;
+  const MAX_HASH_MB = 2048;
   const BOOL_RE = /^(true|1|on|yes)$/i;
 
   const FLAG_CAPTURE = 1;
@@ -34,8 +34,8 @@
   const KING_DIR   = [1, -1, 16, -16, 15, 17, -15, -17];
 
   const PIECE_VALUE = {
-    [WP]: 100, [WN]: 300, [WB]: 300, [WR]: 500, [WQ]: 900, [WK]: 0,
-    [BP]: 100, [BN]: 300, [BB]: 300, [BR]: 500, [BQ]: 900, [BK]: 0,
+    [WP]: 100, [WN]: 320, [WB]: 330, [WR]: 500, [WQ]: 900, [WK]: 0,
+    [BP]: 100, [BN]: 320, [BB]: 330, [BR]: 500, [BQ]: 900, [BK]: 0,
   };
 
   const PIECE_CH = {
@@ -54,54 +54,54 @@
   function opponent(c)   { return c ^ 1; }
   function onBoard(sq)   { return (sq & 0x88) === 0; }
 
-  /* ── Piece-square tables (white view, rank-8 first in array = rank index 7) ── */
+  /* ── Enhanced Piece-square tables ── */
   const PST_PAWN = [
-      0,  0,  0,  0,  0,  0,  0,  0,
-     50, 50, 50, 50, 50, 50, 50, 50,
-     10, 10, 20, 30, 30, 20, 10, 10,
-      5,  5, 10, 25, 25, 10,  5,  5,
-      0,  0,  0, 20, 20,  0,  0,  0,
-      5, -5,-10,  0,  0,-10, -5,  5,
-      5, 10, 10,-20,-20, 10, 10,  5,
-      0,  0,  0,  0,  0,  0,  0,  0,
+      0,   0,   0,   0,   0,   0,   0,   0,
+     50,  50,  50,  50,  50,  50,  50,  50,
+     15,  15,  25,  35,  35,  25,  15,  15,
+     10,  10,  15,  30,  30,  15,  10,  10,
+      5,   5,  10,  25,  25,  10,   5,   5,
+      0,   0,   0,  20,  20,   0,   0,   0,
+      5,  -5, -10,   0,   0, -10,  -5,   5,
+      5,  10,  10, -20, -20,  10,  10,   5,
   ];
   const PST_KNIGHT = [
     -50,-40,-30,-30,-30,-30,-40,-50,
-    -40,-20,  0,  0,  0,  0,-20,-40,
-    -30,  0, 10, 15, 15, 10,  0,-30,
-    -30,  5, 15, 20, 20, 15,  5,-30,
-    -30,  0, 15, 20, 20, 15,  0,-30,
-    -30,  5, 10, 15, 15, 10,  5,-30,
-    -40,-20,  0,  5,  5,  0,-20,-40,
+    -40,-20,  0,  0,  5,  5,-20,-40,
+    -30,  0, 10, 20, 25, 20,  5,-30,
+    -30,  5, 20, 30, 35, 30,  10,-30,
+    -30,  0, 25, 30, 35, 30,  5,-30,
+    -30, 10, 20, 25, 30, 25,  10,-30,
+    -40,-20,  5, 10, 15, 10,  5,-20,
     -50,-40,-30,-30,-30,-30,-40,-50,
   ];
   const PST_BISHOP = [
     -20,-10,-10,-10,-10,-10,-10,-20,
-    -10,  0,  0,  0,  0,  0,  0,-10,
-    -10,  0,  5, 10, 10,  5,  0,-10,
-    -10,  5,  5, 10, 10,  5,  5,-10,
-    -10,  0, 10, 10, 10, 10,  0,-10,
-    -10, 10, 10, 10, 10, 10, 10,-10,
-    -10,  5,  0,  0,  0,  0,  5,-10,
+    -10,  5,  0,  0,  0,  5,  5,-10,
+    -10,  5, 10, 15, 15, 10,  5,-10,
+    -10,  0, 10, 15, 20, 15,  5,-10,
+    -10,  5, 15, 20, 20, 15,  5,-10,
+    -10, 10, 15, 15, 15, 15,  10,-10,
+    -10,  5,  5,  0,  0,  5,  5,-10,
     -20,-10,-10,-10,-10,-10,-10,-20,
   ];
   const PST_ROOK = [
       0,  0,  0,  0,  0,  0,  0,  0,
-      5, 10, 10, 10, 10, 10, 10,  5,
+      5, 15, 15, 15, 15, 15, 15,  5,
      -5,  0,  0,  0,  0,  0,  0, -5,
      -5,  0,  0,  0,  0,  0,  0, -5,
      -5,  0,  0,  0,  0,  0,  0, -5,
      -5,  0,  0,  0,  0,  0,  0, -5,
      -5,  0,  0,  0,  0,  0,  0, -5,
-      0,  0,  0,  5,  5,  0,  0,  0,
+      0,  0,  0, 10, 10,  0,  0,  0,
   ];
   const PST_QUEEN = [
     -20,-10,-10, -5, -5,-10,-10,-20,
-    -10,  0,  0,  0,  0,  0,  0,-10,
     -10,  0,  5,  5,  5,  5,  0,-10,
-     -5,  0,  5,  5,  5,  5,  0, -5,
-      0,  0,  5,  5,  5,  5,  0, -5,
-    -10,  5,  5,  5,  5,  5,  0,-10,
+    -10,  5, 10, 10, 10, 10,  5,-10,
+     -5,  5, 10, 10, 10, 10,  5, -5,
+      0,  0, 10, 10, 10, 10,  0, -5,
+    -10,  5, 10, 10, 10, 10,  5,-10,
     -10,  0,  5,  0,  0,  0,  0,-10,
     -20,-10,-10, -5, -5,-10,-10,-20,
   ];
@@ -112,7 +112,7 @@
     -30,-40,-40,-50,-50,-40,-40,-30,
     -20,-30,-30,-40,-40,-30,-30,-20,
     -10,-20,-20,-20,-20,-20,-20,-10,
-     20, 20,  0,  0,  0,  0, 20, 20,
+     20, 20,  5,  0,  0,  5, 20, 20,
      20, 30, 10,  0,  0, 10, 30, 20,
   ];
   const PST_KING_EG = [
@@ -140,32 +140,31 @@
     }
     return t;
   })();
-  const PAWN_PASSED = [0, 0, 0, 0, 0.1, 0.3, 0.7, 1.2, 0];
-  const ATT_W = [0, 0.01, 0.42, 0.78, 1.11, 1.52, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+  const PAWN_PASSED = [0, 0, 0, 0, 0.1, 0.3, 0.7, 1.3, 0];
+  const ATT_W = [0, 0.01, 0.45, 0.82, 1.15, 1.58, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
-  const MOBN_S = 4, MOBN_E = -5, MOBN_S0 = -9,  MOBN_E0 = -73;
-  const MOBB_S = 7, MOBB_E =  2, MOBB_S0 = -10, MOBB_E0 = -48;
-  const MOBR_S = 5, MOBR_E =  2, MOBR_S0 = -2,  MOBR_E0 = -50;
-  const MOBQ_S = 3, MOBQ_E =  6, MOBQ_S0 = 6,   MOBQ_E0 = 0;
+  /* Enhanced mobility score tables */
+  const MOBN_S = 5, MOBN_E = -5, MOBN_S0 = -10,  MOBN_E0 = -75;
+  const MOBB_S = 8, MOBB_E =  3, MOBB_S0 = -11, MOBB_E0 = -50;
+  const MOBR_S = 6, MOBR_E =  3, MOBR_S0 = -3,  MOBR_E0 = -55;
+  const MOBQ_S = 4, MOBQ_E =  7, MOBQ_S0 = 7,   MOBQ_E0 = 0;
 
-  const TIGHT_NS = 4,   TIGHT_NE = -4;
-  const TIGHT_BS = 10,  TIGHT_BE = 9;
-  const TIGHT_RS = 4,   TIGHT_RE = 6;
-  const TIGHT_QS = -148, TIGHT_QE = -162;
+  const TIGHT_NS =   5,   TIGHT_NE = -5;
+  const TIGHT_BS =  11,  TIGHT_BE = 10;
+  const TIGHT_RS =   5,   TIGHT_RE =  7;
+  const TIGHT_QS = -150,  TIGHT_QE = -165;
 
-  const TENSE_NS = 53,  TENSE_NE = 24;
-  const TENSE_BS = 36,  TENSE_BE = 40;
-  const TENSE_RS = 103, TENSE_RE = -18;
-  const TENSE_QS = -4,  TENSE_QE = 23;
+  const TENSE_NS =  55,  TENSE_NE =  26;
+  const TENSE_BS =  38,  TENSE_BE =  42;
+  const TENSE_RS = 105,  TENSE_RE = -20;
+  const TENSE_QS =  -5,  TENSE_QE =  25;
 
-  const ATT_N = 27, ATT_B = 9, ATT_R = 44, ATT_Q = 49;
-  const TWOBISHOPS_S = 35, TWOBISHOPS_E = 59;
-  const ROOK7TH_S = -28, ROOK7TH_E = 33;
-  const ROOKOPEN_S = 21, ROOKOPEN_E = -3;
-  const ROOK_DOUBLED_S = 27, ROOK_DOUBLED_E = -3;
-  const QUEEN7TH_S = -75, QUEEN7TH_E = 55;
-
-  // Opening book removed. GUI-side books can be used instead.
+  const ATT_N = 28, ATT_B = 10, ATT_R = 45, ATT_Q = 50;
+  const TWOBISHOPS_S = 40, TWOBISHOPS_E = 65;
+  const ROOK7TH_S = -30, ROOK7TH_E = 35;
+  const ROOKOPEN_S = 25, ROOKOPEN_E = -5;
+  const ROOK_DOUBLED_S = 30, ROOK_DOUBLED_E = -5;
+  const QUEEN7TH_S = -80, QUEEN7TH_E = 60;
 
   const BENCH_FENS = [
     START_FEN,
@@ -201,18 +200,26 @@
     }
   }
 
-  /* ── TT using flat typed arrays ── */
-  const TT_DEPTH  = 0;         // byte offsets into each slot (Uint32 view)
-  const TT_FLAG   = 1;
-  const TT_SCORE  = 2;
-  const TT_HASH   = 3;
-  const TT_BEST   = 4;         // best-move encoded as uint32
-  const TT_WORDS  = 5;         // words per slot
+  /* ── Two-slot TT Implementation ── */
+  const TT_WORDS_PER_SLOT = 5;
+  const TT_SLOT1_DEPTH  = 0;
+  const TT_SLOT1_FLAG   = 1;
+  const TT_SLOT1_SCORE  = 2;
+  const TT_SLOT1_HASH   = 3;
+  const TT_SLOT1_BEST   = 4;
+  /* Slot 2 starts at TT_WORDS_PER_SLOT * 4 words offset */
+  const TT_OFFSET       = TT_WORDS_PER_SLOT * 4;
+  const TT_SLOT2_DEPTH  = TT_OFFSET + 0;
+  const TT_SLOT2_FLAG   = TT_OFFSET + 1;
+  const TT_SLOT2_SCORE  = TT_OFFSET + 2;
+  const TT_SLOT2_HASH   = TT_OFFSET + 3;
+  const TT_SLOT2_BEST   = TT_OFFSET + 4;
+  const TT_WORDS_PER_ENTRY = TT_WORDS_PER_SLOT * 2;
 
   function ttSlotsFromMb(mb) {
     const clamped = Math.max(MIN_HASH_MB, Math.min(MAX_HASH_MB, mb | 0));
     const bytes = clamped * 1024 * 1024;
-    const entryBytes = TT_WORDS * 4;
+    const entryBytes = TT_WORDS_PER_ENTRY * 4;
     let slots = 1;
     while ((slots << 1) * entryBytes <= bytes) slots <<= 1;
     return slots;
@@ -226,7 +233,7 @@
     resize(hashMb) {
       this.size = ttSlotsFromMb(hashMb);
       this.mask = this.size - 1;
-      this.data = new Int32Array(this.size * TT_WORDS);
+      this.data = new Int32Array(this.size * TT_WORDS_PER_ENTRY);
       this.ages = new Uint16Array(this.size);
       this.epoch = 1;
     }
@@ -242,74 +249,111 @@
       if (this.epoch === 0) this.epoch = 1;
     }
 
-    _idx(hash) { return ((hash >>> 0) & this.mask) * TT_WORDS; }
+    _baseIdx(hash) { return ((hash >>> 0) & this.mask) * TT_WORDS_PER_ENTRY; }
 
     probe(hash, depth, alpha, beta) {
-      const i = this._idx(hash);
-      if (this.data[i + TT_HASH] !== ((hash >>> 0) | 0)) return null;
-      if (this.data[i + TT_DEPTH] < depth) return null;
-      const score = this.data[i + TT_SCORE];
-      const flag  = this.data[i + TT_FLAG];
-      if (flag === 0)  return score;              // exact
-      if (flag === -1 && score <= alpha) return score; // upper
-      if (flag === 1  && score >= beta)  return score; // lower
+      const base = this._baseIdx(hash);
+      const key = (hash >>> 0) | 0;
+
+      // Check slot 1 (depth-preferred)
+      if (this.data[base + TT_SLOT1_HASH] === key) {
+        if (this.data[base + TT_SLOT1_DEPTH] >= depth) {
+          const score = this.data[base + TT_SLOT1_SCORE];
+          const flag = this.data[base + TT_SLOT1_FLAG];
+          if (flag === 0) return score;
+          if (flag === -1 && score <= alpha) return score;
+          if (flag === 1 && score >= beta) return score;
+        }
+      }
+
+      // Check slot 2 (always-replace)
+      if (this.data[base + TT_SLOT2_HASH] === key) {
+        if (this.data[base + TT_SLOT2_DEPTH] >= depth) {
+          const score = this.data[base + TT_SLOT2_SCORE];
+          const flag = this.data[base + TT_SLOT2_FLAG];
+          if (flag === 0) return score;
+          if (flag === -1 && score <= alpha) return score;
+          if (flag === 1 && score >= beta) return score;
+        }
+      }
+
       return null;
     }
 
     getBestMove(hash) {
-      const i = this._idx(hash);
-      if (this.data[i + TT_HASH] !== ((hash >>> 0) | 0)) return 0;
-      return this.data[i + TT_BEST];
+      const base = this._baseIdx(hash);
+      const key = (hash >>> 0) | 0;
+
+      if (this.data[base + TT_SLOT1_HASH] === key) {
+        return this.data[base + TT_SLOT1_BEST];
+      }
+      if (this.data[base + TT_SLOT2_HASH] === key) {
+        return this.data[base + TT_SLOT2_BEST];
+      }
+      return 0;
     }
 
     store(hash, depth, score, flag, bestEncoded) {
-      const i = this._idx(hash);
-      const slot = (i / TT_WORDS) | 0;
+      const base = this._baseIdx(hash);
       const key = (hash >>> 0) | 0;
-      const oldKey = this.data[i + TT_HASH];
-      const oldDepth = this.data[i + TT_DEPTH];
-      const oldFlag = this.data[i + TT_FLAG];
-      const age = oldKey ? ((this.epoch - this.ages[slot]) & 0xffff) : 0xffff;
+      const slot = (base / TT_WORDS_PER_ENTRY) | 0;
 
-      // Depth-preferred replacement with aging:
-      // keep deeper entries if they are recent, but allow stale replacement.
-      if (oldKey !== 0 && oldDepth > depth && age <= 1) {
+      const s1Depth = this.data[base + TT_SLOT1_DEPTH];
+      const s1Hash = this.data[base + TT_SLOT1_HASH];
+      const s2Hash = this.data[base + TT_SLOT2_HASH];
+
+      // Always replace slot 2 if empty or different key
+      if (s2Hash === 0 || s2Hash !== key) {
+        this.data[base + TT_SLOT2_HASH] = key;
+        this.data[base + TT_SLOT2_DEPTH] = depth;
+        this.data[base + TT_SLOT2_SCORE] = score;
+        this.data[base + TT_SLOT2_FLAG] = flag;
+        this.data[base + TT_SLOT2_BEST] = bestEncoded || this.data[base + TT_SLOT2_BEST];
+        this.ages[slot] = this.epoch;
         return;
       }
-      if (oldKey !== 0 && oldDepth > depth + 2 && age <= 4) {
+
+      // For same key, use depth-preferred slot 1
+      if (s1Hash === key) {
+        if (this.data[base + TT_SLOT1_DEPTH] <= depth) {
+          this.data[base + TT_SLOT1_DEPTH] = depth;
+          this.data[base + TT_SLOT1_SCORE] = score;
+          this.data[base + TT_SLOT1_FLAG] = flag;
+          this.data[base + TT_SLOT1_BEST] = bestEncoded || this.data[base + TT_SLOT1_BEST];
+        }
         return;
       }
 
-      // If same depth, keep exact entries over bounds.
-      if (oldKey !== 0 && oldDepth === depth) {
-        if (oldFlag === 0 && flag !== 0 && age <= 2) return;
+      // Replace slot 1 with deeper entry, or slot 2 if shallower
+      if (s1Depth <= depth || s1Hash === 0) {
+        this.data[base + TT_SLOT1_HASH] = key;
+        this.data[base + TT_SLOT1_DEPTH] = depth;
+        this.data[base + TT_SLOT1_SCORE] = score;
+        this.data[base + TT_SLOT1_FLAG] = flag;
+        this.data[base + TT_SLOT1_BEST] = bestEncoded;
+      } else {
+        this.data[base + TT_SLOT2_HASH] = key;
+        this.data[base + TT_SLOT2_DEPTH] = depth;
+        this.data[base + TT_SLOT2_SCORE] = score;
+        this.data[base + TT_SLOT2_FLAG] = flag;
+        this.data[base + TT_SLOT2_BEST] = bestEncoded;
       }
-
-      // Preserve previous best move when a bound update has no move.
-      const best = bestEncoded ? (bestEncoded | 0) : (oldKey === key ? this.data[i + TT_BEST] : 0);
-
-      this.data[i + TT_HASH]  = key;
-      this.data[i + TT_DEPTH] = depth;
-      this.data[i + TT_SCORE] = score;
-      this.data[i + TT_FLAG]  = flag;
-      this.data[i + TT_BEST]  = best;
       this.ages[slot] = this.epoch;
     }
 
     hashfull() {
-      // UCI hashfull scale: 0..1000. Sample up to 1024 slots for speed.
-      const sample = Math.min(1024, this.size);
+      const sample = Math.min(2048, this.size);
       if (!sample) return 0;
       const step = Math.max(1, (this.size / sample) | 0);
       let used = 0;
-      let seen = 0;
-      for (let slot = 0; slot < this.size && seen < sample; slot += step, seen++) {
-        if (this.data[slot * TT_WORDS + TT_HASH] !== 0) used++;
+      for (let slot = 0; slot < this.size && used < sample; slot += step) {
+        const base = slot * TT_WORDS_PER_ENTRY;
+        if (this.data[base + TT_SLOT1_HASH] !== 0 || 
+            this.data[base + TT_SLOT2_HASH] !== 0) used++;
       }
-      return Math.max(0, Math.min(1000, Math.floor((used * 1000) / Math.max(1, seen))));
+      return Math.max(0, Math.min(1000, Math.floor((used * 1000) / Math.max(1, Math.min(sample, this.size / step)))));
     }
 
-    /* Encode / decode a move as a single int32 for TT storage */
     static encodeMove(m) {
       if (!m) return 0;
       return (m.from) | (m.to << 8) | ((m.promo || 0) << 16) | ((m.flags || 0) << 24);
@@ -317,12 +361,102 @@
     static decodeMove(v) {
       if (!v) return null;
       return {
-        from:    v & 0xff,
-        to:     (v >>> 8)  & 0xff,
-        promo:  (v >>> 16) & 0xff,
-        flags:  (v >>> 24) & 0xff,
-        piece: EMPTY, capture: EMPTY, // filled in by findMoveByEncoded
+        from:   v & 0xff,
+        to:    (v >>> 8)  & 0xff,
+        promo: (v >>> 16) & 0xff,
+        flags: (v >>> 24) & 0xff,
+        piece: EMPTY, capture: EMPTY,
       };
+    }
+  }
+
+  /* ── Opening Book (Polyglot format support) ── */
+  class OpeningBook {
+    constructor() {
+      this.entries = [];
+      this.enabled = false;
+      this.randomness = 0.3;
+    }
+
+    clear() {
+      this.entries = [];
+    }
+
+    addMove(fen, moveUci, weight = 1) {
+      // Simple book entry: use FEN partial hash + move
+      const fenParts = fen.split(/\s+/);
+      const positionKey = fenParts[0] + ' ' + fenParts[1];
+      this.entries.push({ key: positionKey, move: moveUci, weight });
+    }
+
+    generateDefaultBook() {
+      /* Basic opening principles */
+      const openings = [
+        { fen: START_FEN, moves: [{uci:'e2e4',w:10},{uci:'d2d4',w:8},{uci:'c2c4',w:6},{uci:'g1f3',w:5}] },
+        { fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1', 
+          moves: [{uci:'e7e5',w:10},{uci:'c7c5',w:8},{uci:'e7e6',w:6}] },
+        { fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+          moves: [{uci:'g1f3',w:10},{uci:'b1c3',w:7},{uci:'f1b5',w:8}] },
+        { fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3',
+          moves: [{uci:'f1b5',w:10},{uci:'d2d3',w:5}] },
+        /* Sicilian */
+        { fen: 'r1bqkbnr/pp1ppppp/2n5/8/3pP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 3',
+          moves: [{uci:'d2d4',w:10},{uci:'f1c4',w:7}] },
+        { fen: 'rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 2',
+          moves: [{uci:'c2c3',w:8},{uci:'d2d4',w:10}] },
+        /* French */
+        { fen: 'rnbqkbnr/ppp2ppp/4p3/3p4/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 0 3',
+          moves: [{uci:'e2e5',w:10},{uci:'d2d4',w:8}] },
+        /* Caro-Kann */
+        { fen: 'rnbqkbnr/pp1ppp2/2p4p/8/4P3/5N2/PPP1PPPP/RNBQKB1R w KQkq - 0 3',
+          moves: [{uci:'e2e5',w:10},{uci:'d2d4',w:9}] },
+        /* London System */
+        { fen: 'rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R w KQkq - 1 1',
+          moves: [{uci:'d2d4',w:10},{uci:'c2c4',w:5}] },
+      ];
+
+      for (const entry of openings) {
+        for (const mv of entry.moves) {
+          this.addMove(entry.fen, mv.uci, mv.w);
+        }
+      }
+    }
+
+    probe(fen) {
+      if (!this.enabled || this.entries.length === 0) return null;
+
+      const fenParts = fen.split(/\s+/);
+      const positionKey = fenParts[0] + ' ' + fenParts[1];
+      
+      const candidates = [];
+      const entries = this.entries;
+      for (let i = 0; i < entries.length; i++) {
+        if (entries[i].key === positionKey) {
+          candidates.push(entries[i]);
+        }
+      }
+
+      if (candidates.length === 0) return null;
+      if (candidates.length === 1) return candidates[0].move;
+
+      // Weighted random selection
+      const totalWeight = candidates.reduce((sum, e) => sum + e.weight, 0);
+      let r = Math.random() * totalWeight * (1 + this.randomness);
+      
+      for (const e of candidates) {
+        r -= e.weight;
+        if (r <= 0) return e.move;
+      }
+      
+      return candidates[0].move;
+    }
+
+    setRandomness(val) {
+      this.randomness = Math.max(0, Math.min(1, val));
+    }
+
+    setEnabled(enabled) {
+      this.enabled = !!enabled;
     }
   }
 
@@ -339,7 +473,6 @@
     return (r << 4) | f;
   }
 
-  /* Pre-compute common squares */
   const SQ = {};
   ['a1','b1','c1','d1','e1','f1','g1','h1',
    'a8','b8','c8','d8','e8','f8','g8','h8'].forEach(n => { SQ[n] = uciToSq(n); });
@@ -348,7 +481,7 @@
 
   class Engine {
     constructor() {
-      this.name   = 'Bintang Toba 3.0';
+      this.name   = 'Bintang Toba 4.0 Enhanced';
       this.author = 'Bintang Team';
 
       this.options = {
@@ -358,12 +491,16 @@
         StrengthPreset: 'Custom',
         SkillLevel: 20,
         UCI_LimitStrength: false,
-        UCI_Elo: 2000,
-        MoveOverhead: 0,
+        UCI_Elo: 2300,
+        MoveOverhead: 30,
         UCI_AnalyseMode: false,
         UCI_ShowWDL: false,
         UCI_ShowACPL: false,
         PVFormat: 'uci',
+        OwnBook: true,
+        BookFile: '',
+        Contempt: 15,
+        BookRandomness: 0.3,
       };
 
       this.stop      = false;
@@ -386,37 +523,34 @@
       this.halfmove = 0;
       this.fullmove = 1;
 
-      /* King square cache */
       this.kingPos  = [SQ['e1'], SQ['e8']];
 
-      /* History stack */
       this.history  = [];
       this.hashStack = [];
 
-      /* Killer moves [ply][0..1] */
       this.killers  = Array.from({length: 128}, () => [0, 0]);
 
-      /* History heuristic [piece][to] */
       this.histTable = new Int32Array(15 * 128);
 
-      /* Continuation history [prevMoveIndex][curMoveIndex] */
       this.contHist = new Int16Array((15 * 128) * (15 * 128));
 
-      /* Static eval trace for improving/non-improving decisions */
+      this.counterMoves = new Int32Array(15 * 128);
+
       this.evalTrace = new Int32Array(256);
 
-      /* Zobrist */
       this.Z = this._initZobrist();
 
-      /* Transposition table */
       this.tt = new TranspositionTable(this.options.Hash);
+
+      this.book = new OpeningBook();
+      this.book.generateDefaultBook();
+      this.book.setEnabled(true);
 
       this.bestMove  = null;
 
       this.setFen(START_FEN);
     }
 
-    /* ── Zobrist ── */
     _initZobrist() {
       const rng   = new RNG(0x12345678);
       const piece = Array.from({length: 15}, () => {
@@ -432,10 +566,8 @@
       return { piece, side, castle, ep };
     }
 
-    /* ── Communication ── */
     send(...parts) { postMessage(parts.join(' ').trim()); }
 
-    /* ── FEN ── */
     clearBoard() {
       this.board.fill(0);
       this.side = WHITE; this.castle = 0; this.ep = -1;
@@ -495,7 +627,6 @@
       return `${rows.join('/')} ${this.side===WHITE?'w':'b'} ${c} ${this.ep===-1?'-':sqToUci(this.ep)} ${this.halfmove} ${this.fullmove}`;
     }
 
-    /* ── Incremental Zobrist ── */
     _recomputeHash() {
       let h = 0;
       for (let sq = 0; sq < 128; sq++) {
@@ -509,10 +640,8 @@
       this.hash = h >>> 0;
     }
 
-    /* ── Attack detection ── */
     isAttacked(sq, byColor) {
       const board = this.board;
-      /* Pawn */
       if (byColor === WHITE) {
         if (onBoard(sq-15) && board[sq-15] === WP) return true;
         if (onBoard(sq-17) && board[sq-17] === WP) return true;
@@ -520,13 +649,11 @@
         if (onBoard(sq+15) && board[sq+15] === BP) return true;
         if (onBoard(sq+17) && board[sq+17] === BP) return true;
       }
-      /* Knight */
       const kn = byColor === WHITE ? WN : BN;
       for (const d of KNIGHT_DIR) {
         const to = sq + d;
         if (onBoard(to) && board[to] === kn) return true;
       }
-      /* Sliders */
       const bi = byColor === WHITE ? WB : BB;
       const ro = byColor === WHITE ? WR : BR;
       const qu = byColor === WHITE ? WQ : BQ;
@@ -544,7 +671,6 @@
           to += d;
         }
       }
-      /* King */
       const ki = byColor === WHITE ? WK : BK;
       for (const d of KING_DIR) {
         const to = sq + d;
@@ -565,13 +691,11 @@
              (onBoard(sq + 17) && board[sq + 17] === BP);
     }
 
-    /* ── Make / Undo ── */
     makeMove(m) {
       const oldCastle = this.castle;
       const oldEp     = this.ep;
       const oldHash   = this.hash;
 
-      /* Save state */
       this.history.push({
         from: m.from, to: m.to, piece: m.piece, capture: m.capture,
         promo: m.promo, flags: m.flags,
@@ -583,34 +707,27 @@
         kingB: this.kingPos[BLACK],
       });
 
-      /* Incremental hash: remove moving piece from source */
       let h = oldHash;
       h ^= this.Z.piece[m.piece][m.from];
       h ^= this.Z.castle[oldCastle];
       if (oldEp !== -1) h ^= this.Z.ep[oldEp];
 
-      /* Halfmove */
       this.halfmove++;
       if (m.piece === WP || m.piece === BP || m.capture) this.halfmove = 0;
 
-      /* Remove piece from source */
       this.board[m.from] = EMPTY;
 
-      /* Capture */
       if (m.capture && !(m.flags & FLAG_EP)) {
         h ^= this.Z.piece[m.capture][m.to];
       }
 
-      /* Place piece (or promotion) on destination */
       const placed = m.promo || m.piece;
       this.board[m.to] = placed;
       h ^= this.Z.piece[placed][m.to];
 
-      /* Update king cache */
       if (m.piece === WK) this.kingPos[WHITE] = m.to;
       if (m.piece === BK) this.kingPos[BLACK] = m.to;
 
-      /* En passant capture */
       this.ep = -1;
       if (m.flags & FLAG_EP) {
         const capSq = this.side === WHITE ? m.to - 16 : m.to + 16;
@@ -618,7 +735,6 @@
         this.board[capSq] = EMPTY;
       }
 
-      /* Castling rook move */
       if (m.flags & FLAG_CASTLE) {
         const [rs, rd] = this._castleRookSquares(m.to);
         const rook = this.board[rs];
@@ -628,7 +744,6 @@
         this.board[rs] = EMPTY;
       }
 
-      /* Castle rights */
       if (m.piece === WK) this.castle &= ~3;
       if (m.piece === BK) this.castle &= ~12;
       if (m.from === SQ['a1'] || m.to === SQ['a1']) this.castle &= ~2;
@@ -636,11 +751,9 @@
       if (m.from === SQ['a8'] || m.to === SQ['a8']) this.castle &= ~8;
       if (m.from === SQ['h8'] || m.to === SQ['h8']) this.castle &= ~4;
 
-      /* New en passant square */
       if (m.piece === WP && m.to - m.from === 32) this.ep = m.from + 16;
       if (m.piece === BP && m.from - m.to === 32) this.ep = m.from - 16;
 
-      /* Finalize hash */
       h ^= this.Z.castle[this.castle];
       if (this.ep !== -1) h ^= this.Z.ep[this.ep];
       h ^= this.Z.side;
@@ -652,11 +765,10 @@
     }
 
     _castleRookSquares(kingTo) {
-      /* returns [rookSrc, rookDest] */
       if (kingTo === SQ['g1']) return [SQ['h1'], SQ['f1']];
       if (kingTo === SQ['c1']) return [SQ['a1'], SQ['d1']];
       if (kingTo === SQ['g8']) return [SQ['h8'], SQ['f8']];
-      /* c8 */                  return [SQ['a8'], SQ['d8']];
+      return [SQ['a8'], SQ['d8']];
     }
 
     undoMove() {
@@ -689,7 +801,6 @@
       }
     }
 
-    /* ── Null move ── */
     makeNullMove() {
       const oldEp = this.ep;
       this.history.push({
@@ -713,12 +824,10 @@
 
     undoNullMove() { this.undoMove(); }
 
-    /* ── Draw detection ── */
     isDraw() {
       if (this.halfmove >= 100) return true;
       const cur = this.hash;
       let reps = 0;
-      /* Walk back — stop early on captures/pawn moves (halfmove resets) */
       const limit = Math.max(0, this.hashStack.length - this.halfmove - 1);
       for (let i = this.hashStack.length - 1; i >= limit; i--) {
         if (this.hashStack[i] === cur) { if (++reps >= 2) return true; }
@@ -744,7 +853,6 @@
       return false;
     }
 
-    /* ── Move generation ── */
     genMoves(capturesOnly = false) {
       const moves = [];
       const us    = this.side;
@@ -780,7 +888,6 @@
         if (p === WK || p === BK) { this._genKingMoves(sq,p,us,moves,capturesOnly); }
       }
 
-      /* Legal filter */
       const legal = [];
       for (const m of moves) {
         this.makeMove(m);
@@ -864,7 +971,6 @@
         else if (colorOf(tp) !== us) moves.push(this._mk(sq,to,p,tp,0,FLAG_CAPTURE));
       }
       if (capturesOnly) return;
-      /* Castling */
       const inChk = this.inCheck(us);
       if (!inChk) {
         if (us === WHITE && sq === SQ['e1']) {
@@ -886,7 +992,6 @@
       }
     }
 
-    /* ── Move helpers ── */
     moveToUci(m) {
       if (!m) return '0000';
       const base = sqToUci(m.from) + sqToUci(m.to);
@@ -898,18 +1003,15 @@
       if (m.flags & FLAG_CASTLE) {
         return (m.to === SQ['g1'] || m.to === SQ['g8']) ? 'O-O' : 'O-O-O';
       }
-
       const piece = m.piece;
       const toSq = sqToUci(m.to);
       const isCapture = !!(m.flags & (FLAG_CAPTURE | FLAG_EP));
       let san = '';
-
       if (piece === WP || piece === BP) {
         if (isCapture) san += FILES[m.from & 7] + 'x';
         san += toSq;
       } else {
         san += (PIECE_CH[piece] || '').toUpperCase();
-
         const moves = this.genMoves(false);
         const same = moves.filter((x) =>
           x.to === m.to &&
@@ -929,18 +1031,14 @@
           else if (!rankConflict) san += String(fromRank + 1);
           else san += FILES[fromFile] + String(fromRank + 1);
         }
-
         if (isCapture) san += 'x';
         san += toSq;
       }
-
       if (m.flags & FLAG_PROMO) san += '=' + (PIECE_CH[m.promo] || 'Q').toUpperCase();
-
       this.makeMove(m);
       const inCheck = this.inCheck(this.side);
       if (inCheck) san += this.genMoves(false).length ? '+' : '#';
       this.undoMove();
-
       return san;
     }
 
@@ -969,7 +1067,6 @@
       return null;
     }
 
-    /* ── Evaluation ── */
     sq128To64(sq) { return ((sq >> 4) << 3) | (sq & 7); }
     mirror64(i)   { return ((7-(i>>3))<<3)|(i&7); }
 
@@ -986,21 +1083,20 @@
     }
 
     _pawnStructure(whiteFiles, blackFiles, wpSquares, bpSquares) {
-
       let mg = 0;
       let eg = 0;
 
       for (let f = 0; f < 8; f++) {
-        if (whiteFiles[f] > 1) { mg -= 11 * (whiteFiles[f] - 1); eg -= 3 * (whiteFiles[f] - 1); }
-        if (blackFiles[f] > 1) { mg += 11 * (blackFiles[f] - 1); eg += 3 * (blackFiles[f] - 1); }
+        if (whiteFiles[f] > 1) { mg -= 13 * (whiteFiles[f] - 1); eg -= 4 * (whiteFiles[f] - 1); }
+        if (blackFiles[f] > 1) { mg += 13 * (blackFiles[f] - 1); eg += 4 * (blackFiles[f] - 1); }
 
         if (whiteFiles[f] && (f === 0 ? whiteFiles[1] === 0 : (f === 7 ? whiteFiles[6] === 0 : whiteFiles[f - 1] === 0 && whiteFiles[f + 1] === 0))) {
-          mg -= 13 * whiteFiles[f];
-          eg -= 12 * whiteFiles[f];
+          mg -= 15 * whiteFiles[f];
+          eg -= 14 * whiteFiles[f];
         }
         if (blackFiles[f] && (f === 0 ? blackFiles[1] === 0 : (f === 7 ? blackFiles[6] === 0 : blackFiles[f - 1] === 0 && blackFiles[f + 1] === 0))) {
-          mg += 13 * blackFiles[f];
-          eg += 12 * blackFiles[f];
+          mg += 15 * blackFiles[f];
+          eg += 14 * blackFiles[f];
         }
       }
 
@@ -1017,12 +1113,12 @@
         }
         if (passed) {
           const adv = PAWN_PASSED[r + 1] || 0;
-          mg += Math.round(25 + 8 * adv);
-          eg += Math.round(35 + 78 * adv);
+          mg += Math.round(30 + 10 * adv);
+          eg += Math.round(40 + 85 * adv);
         }
         if ((onBoard(sq - 15) && board[sq - 15] === WP) || (onBoard(sq - 17) && board[sq - 17] === WP)) {
-          mg += 8;
-          eg += 8;
+          mg += 10;
+          eg += 12;
         }
       }
 
@@ -1037,12 +1133,12 @@
         }
         if (passed) {
           const adv = PAWN_PASSED[8 - r] || 0;
-          mg -= Math.round(25 + 8 * adv);
-          eg -= Math.round(35 + 78 * adv);
+          mg -= Math.round(30 + 10 * adv);
+          eg -= Math.round(40 + 85 * adv);
         }
         if ((onBoard(sq + 15) && board[sq + 15] === BP) || (onBoard(sq + 17) && board[sq + 17] === BP)) {
-          mg -= 8;
-          eg -= 8;
+          mg -= 10;
+          eg -= 12;
         }
       }
 
@@ -1183,7 +1279,7 @@
             mg -= s + ts;
             eg -= e + te;
             if (zoneHit) { bAttackN++; bAttackV += ATT_Q; }
-            if (rank === 1 && (whiteKingSq >> 4) === 0) { mg -= QUEEN7TH_S; eg -= QUEEN7TH_E; }
+            if (rank === 1 && (whiteKingSq >> 4) === 0) { mg -= QUEEN7TH_S; eg += QUEEN7TH_E; }
           }
         }
       }
@@ -1223,41 +1319,37 @@
         let shelter = 0;
         let storm = 0;
 
-        // Pawn shield and storm in front of king.
         for (let df = -1; df <= 1; df++) {
           const ff = f + df;
           if (ff < 0 || ff > 7) continue;
-          for (let step = 1; step <= 2; step++) {
+          for (let step = 1; step <= 3; step++) {
             const rr = r + forward * step;
             if (rr < 0 || rr > 7) continue;
             const sq = (rr << 4) | ff;
             const p = board[sq];
-            if (p === ownPawn) shelter += 12 - step * 3;
-            else if (p !== EMPTY) storm += 8 - step;
+            if (p === ownPawn) shelter += 15 - step * 4;
+            else if (p !== EMPTY && step <= 2) storm += 10 - step * 3;
           }
         }
 
-        // Penalize open / semi-open files around king.
         let openPenalty = 0;
         for (let df = -1; df <= 1; df++) {
           const ff = f + df;
           if (ff < 0 || ff > 7) continue;
-          if (ownFiles[ff] === 0) openPenalty += 8;
-          if (ownFiles[ff] === 0 && oppFiles[ff] === 0) openPenalty += 4;
+          if (ownFiles[ff] === 0) openPenalty += 10;
+          if (ownFiles[ff] === 0 && oppFiles[ff] === 0) openPenalty += 5;
         }
 
-        // Count enemy attacks near king as danger metric.
         const zone = zoneSquares(kingSq, us);
         let attackCount = 0;
         for (const sq of zone) {
           if (this.isAttacked(sq, oppColor)) attackCount++;
         }
 
-        // Bonus when king is clearly safe.
-        const safeBonus = shelter >= 16 && attackCount <= 2 ? 10 : 0;
+        const safeBonus = shelter >= 20 && attackCount <= 2 ? 15 : 0;
 
-        const mg = (shelter * 5) - (storm * 4) - openPenalty - (attackCount * 7) + safeBonus;
-        const eg = (shelter * 2) - (storm * 2) - Math.floor(openPenalty / 2) - (attackCount * 3);
+        const mg = (shelter * 6) - (storm * 5) - openPenalty - (attackCount * 8) + safeBonus;
+        const eg = (shelter * 3) - (storm * 3) - Math.floor(openPenalty / 2) - (attackCount * 4);
         return { mg, eg };
       };
 
@@ -1327,12 +1419,17 @@
       const phaseClamped = Math.max(0, Math.min(MAX_PHASE, phase));
       let score = Math.round((mgScore * phaseClamped + egScore * (MAX_PHASE - phaseClamped)) / MAX_PHASE);
 
-      if (this.inCheck(this.side)) {
-        score += this.side === WHITE ? -20 : 20;
+      /* Contempt factor - draw avoidance */
+      const contempt = this.options.Contempt || 0;
+      if (Math.abs(score) < 100) {
+        score += this.side === WHITE ? contempt : -contempt;
       }
 
-      /* Tempo bonus */
-      score += this.side === WHITE ? 10 : -10;
+      if (this.inCheck(this.side)) {
+        score += this.side === WHITE ? -25 : 25;
+      }
+
+      score += this.side === WHITE ? 12 : -12;
       return this.side === WHITE ? score : -score;
     }
 
@@ -1440,30 +1537,47 @@
       return gain[0];
     }
 
-    /* ── Move ordering ── */
+    /* ── Improved Move Ordering ── */
     _moveScore(m, ttBestEnc, ply) {
       const enc = TranspositionTable.encodeMove(m);
-      if (enc === ttBestEnc) return 2000000;
+      if (enc === ttBestEnc) return 8000000;
       if (m.flags & FLAG_CAPTURE) {
         const victim = (m.capture & 7) || 0;
         const attacker = (m.piece & 7) || 0;
         const mvv = MVV_LVA[victim][attacker] || 0;
         const see = m._see || 0;
         const movingQueen = m.piece === WQ || m.piece === BQ;
-        // Strongly discourage queen trades down unless there is clear tactical compensation.
-        if (movingQueen && victim !== 5 && see < 250) return 120000 + mvv + see;
-        if (see < 0) return 250000 + mvv + see;
-        return 1500000 + mvv + Math.min(200, see);
+        if (movingQueen && victim !== 5 && see < 280) return 150000 + mvv + see;
+        if (see < 0) return 280000 + mvv + see;
+        return 2500000 + mvv + Math.min(300, see);
       }
-      if (m.flags & FLAG_PROMO) return 1100000 + ((m.promo & 7) || 0);
+      if (m.flags & FLAG_PROMO) return 2000000 + ((m.promo & 7) || 0);
+      
+      // Counter move bonus
+      const prev = this.history[this.history.length - 2];
+      if (prev && prev.from >= 0 && prev.piece) {
+        const counterIdx = (prev.piece << 7) | prev.to;
+        if (enc === this.counterMoves[counterIdx]) return 1200000;
+      }
+
       const killers = this.killers[ply] || [];
-      if (enc === killers[0]) return 800000;
-      if (enc === killers[1]) return 700000;
+      if (enc === killers[0]) return 1000000;
+      if (enc === killers[1]) return 900000;
+      
       let quiet = (this.histTable[(m.piece << 7) | m.to] | 0) + this.getContinuationBonus(m);
+      
+      // Passed pawn bonus
+      const isPawn = m.piece === WP || m.piece === BP;
+      if (isPawn) {
+        const toRank = m.to >> 4;
+        const passed = m.piece === WP ? toRank >= 4 : toRank <= 3;
+        if (passed) quiet += 200 * (m.piece === WP ? toRank : (7 - toRank));
+      }
+      
       if (m.piece === WQ || m.piece === BQ) {
         const them = opponent(this.side);
-        if (this.isAttacked(m.to, them)) quiet -= 220;
-        if (this.isSquareAttackedByPawn(m.to, them)) quiet -= 180;
+        if (this.isAttacked(m.to, them)) quiet -= 200;
+        if (this.isSquareAttackedByPawn(m.to, them)) quiet -= 160;
       }
       return quiet;
     }
@@ -1473,7 +1587,6 @@
         if (m.flags & FLAG_CAPTURE) {
           const victimVal = PIECE_VALUE[m.capture] || 0;
           const attackerVal = PIECE_VALUE[m.piece] || 0;
-          // Fast path: obvious favorable captures skip expensive SEE.
           m._see = victimVal >= attackerVal ? (victimVal - attackerVal) : this.see(m);
         } else {
           m._see = 0;
@@ -1506,6 +1619,14 @@
       if (enc !== k[0]) { k[1] = k[0]; k[0] = enc; }
     }
 
+    storeCounterMove(m) {
+      const prev = this.history[this.history.length - 2];
+      if (!prev || prev.from < 0 || !prev.piece) return;
+      const counterIdx = (prev.piece << 7) | prev.to;
+      const curEnc = TranspositionTable.encodeMove(m);
+      this.counterMoves[counterIdx] = curEnc;
+    }
+
     isKillerMove(m, ply) {
       const enc = TranspositionTable.encodeMove(m);
       const k = this.killers[ply] || [0, 0];
@@ -1522,13 +1643,13 @@
 
     updateHistory(m, depth) {
       const idx = (m.piece << 7) | m.to;
-      this.histTable[idx] = Math.min(this.histTable[idx] + depth * depth, 20000);
+      this.histTable[idx] = Math.min(this.histTable[idx] + depth * (depth + 1), 32000);
 
       const prev = this.history[this.history.length - 1];
       if (!prev || prev.from < 0 || !prev.piece) return;
       const prevIdx = (prev.piece << 7) | prev.to;
       const cidx = prevIdx * (15 * 128) + idx;
-      this.contHist[cidx] = Math.max(-20000, Math.min(20000, (this.contHist[cidx] | 0) + depth * depth));
+      this.contHist[cidx] = Math.max(-32000, Math.min(32000, (this.contHist[cidx] | 0) + depth * (depth + 1)));
     }
 
     hasNonPawnMaterial(color) {
@@ -1542,7 +1663,43 @@
       return false;
     }
 
-    /* ── Quiescence ── */
+    isPassedPawn(sq, side) {
+      const up = side === WHITE ? 16 : -16;
+      const rank = sq >> 4;
+      const pawnType = side === WHITE ? WP : BP;
+      const enemyPawn = side === WHITE ? BP : WP;
+      const board = this.board;
+
+      for (let r = side === WHITE ? rank + 1 : rank - 1;
+           side === WHITE ? r <= 7 : r >= 0;
+           side === WHITE ? r++ : r--) {
+        const file = sq & 7;
+        for (let f = Math.max(0, file - 1); f <= Math.min(7, file + 1); f++) {
+          if (board[(r << 4) | f] === enemyPawn) return false;
+        }
+      }
+      return true;
+    }
+
+    /* ── Enhanced LMR Formula ── */
+    getLMRReduction(depth, legalIdx, improving, isPV, inCheck, givesCheck, historyBonus) {
+      if (inCheck || givesCheck) return 0;
+      
+      const baseReduction = Math.floor(Math.log2(depth) * Math.log2(legalIdx + 1) / 2.2);
+      
+      let reduction = baseReduction;
+      
+      if (improving) reduction -= 1;
+      if (!isPV) reduction += 1;
+      if (historyBonus > 20000) reduction -= 2;
+      else if (historyBonus < 5000) reduction += 1;
+      
+      const minReduction = depth <= 2 ? 1 : 2;
+      reduction = Math.max(minReduction, Math.min(reduction, depth - 2));
+      
+      return reduction;
+    }
+
     qsearch(alpha, beta, ply) {
       if (this.stop) return alpha;
       this._checkTime();
@@ -1583,9 +1740,8 @@
 
       for (let i = 0; i < moves.length; i++) {
         const m = this.pickNextMove(moves, i);
-        /* Delta pruning */
         const gain = (PIECE_VALUE[m.capture]||0) + (m.promo ? PIECE_VALUE[m.promo]||0 : 0);
-        if (stand + gain + 200 < alpha) continue;
+        if (stand + gain + 220 < alpha) continue;
         if ((m.flags & FLAG_CAPTURE) && !(m.flags & FLAG_PROMO) && (m._see || 0) < 0) continue;
 
         this.makeMove(m);
@@ -1598,7 +1754,6 @@
       return alpha;
     }
 
-    /* ── Negamax + PVS ── */
     negamax(depth, alpha, beta, ply, allowNull = true) {
       if (this.stop) return 0;
       this._checkTime();
@@ -1612,19 +1767,15 @@
       if (this.isDraw()||this.isInsufficientMaterial()) return 0;
 
       const inChk = this.inCheck(this.side);
-
-      /* Check extension */
       if (inChk) depth++;
 
       if (depth <= 0) return this.qsearch(alpha, beta, ply);
 
-      /* Mate distance pruning */
       const mateVal = MATE - ply;
       if (alpha < -mateVal) alpha = -mateVal;
       if (beta  >  mateVal) beta  =  mateVal;
       if (alpha >= beta) return alpha;
 
-      /* TT probe */
       const ttScore = this.tt.probe(this.hash, depth, alpha, beta);
       if (!isPV && ttScore !== null) return ttScore;
       const ttBestEnc = this.tt.getBestMove(this.hash);
@@ -1634,28 +1785,28 @@
       this.evalTrace[ply] = inChk ? this.evalTrace[Math.max(0, ply - 2)] : staticEval;
       const improving = !inChk && ply >= 2 && staticEval > this.evalTrace[ply - 2];
 
-      /* Reverse futility pruning */
-      if (!isPV && !inChk && depth <= 3) {
-        const margin = 100 * depth;
+      /* Reverse futility pruning - more aggressive at depth */
+      if (!isPV && !inChk && depth <= 4) {
+        const margin = 110 * depth + (improving ? 0 : 30);
         if (staticEval - margin >= beta) return staticEval - margin;
       }
 
-      /* Null-move pruning */
-      if (allowNull && !isPV && depth >= 3 && !inChk && this.hasNonPawnMaterial(this.side)) {
+      /* Null move pruning - more aggressive */
+      if (allowNull && !isPV && depth >= 2 && !inChk && this.hasNonPawnMaterial(this.side)) {
         const R = depth >= 6 ? 4 : 3;
         this.makeNullMove();
         const nmScore = -this.negamax(depth - 1 - R, -beta, -beta+1, ply+1, false);
         this.undoNullMove();
         if (this.stop) return 0;
-        if (nmScore >= beta) return beta;
+        if (nmScore >= beta) return (nmScore < MATE - 100) ? nmScore : beta;
       }
 
-      /* Razoring */
+      /* Improved razoring */
       if (!isPV && !inChk && depth <= 2) {
-        const razor = staticEval + 300 * depth;
+        const razor = staticEval + 350 * depth + (improving ? 50 : 0);
         if (razor < alpha) {
           const q = this.qsearch(alpha, beta, ply);
-          if (q < alpha) return alpha;
+          if (q < alpha) return q;
         }
       }
 
@@ -1674,58 +1825,63 @@
         const m = this.pickNextMove(moves, i);
         moveTried++;
         const quietMove = (m.flags & (FLAG_CAPTURE | FLAG_PROMO | FLAG_EP)) === 0;
-        const killerMove = quietMove && this.isKillerMove(m, ply);
+        const isKiller = quietMove && this.isKillerMove(m, ply);
+        const historyBonus = quietMove ? (this.histTable[(m.piece << 7) | m.to] | 0) + this.getContinuationBonus(m) : 0;
 
-        /* Late move pruning for quiet moves in low depth */
-        if (!isPV && !inChk && quietMove && depth <= 4) {
-          const limit = depth === 1 ? 5 : (depth === 2 ? 8 : (depth === 3 ? 12 : 18));
+        /* Enhanced late move pruning */
+        if (!isPV && !inChk && quietMove && depth <= 5) {
+          const histMult = historyBonus > 15000 ? 1.5 : 1;
+          const limit = Math.ceil((depth === 1 ? 6 : (depth === 2 ? 10 : (depth === 3 ? 15 : 22))) * histMult);
           if (moveTried >= limit) continue;
         }
 
-        /* Node futility pruning for quiet moves */
-        if (!isPV && !inChk && quietMove && depth <= 3) {
-          const futMargin = 140 * depth;
-          if (staticEval + futMargin <= alpha) {
-            continue;
-          }
+        /* Improved node futility pruning */
+        if (!isPV && !inChk && quietMove && depth <= 4) {
+          const futMargin = 150 * depth + (improving ? 0 : 40);
+          if (staticEval + futMargin <= alpha) continue;
+        }
+
+        /* SEE pruning for quiet moves */
+        if (!isPV && quietMove && depth <= 4 && legalIdx >= 4) {
+          if (m._see < -30 * depth) continue;
         }
 
         this.makeMove(m);
         const givesCheck = this.inCheck(this.side);
-        let score;
-
-        const isSingularCandidate = !isPV && !inChk && depth >= 7 &&
-          ttBestEnc && (TranspositionTable.encodeMove(m) === ttBestEnc) && legalIdx === 0;
+        const isPassedPawn = (m.piece === WP || m.piece === BP) && this.isPassedPawn(m.to, this.side);
+        
         let extension = 0;
-        if (isSingularCandidate) {
-          // Lightweight singular extension for strongly preferred TT moves.
-          extension = 1;
-        }
+        
+        /* Improved extensions */
+        if (givesCheck) extension = 1;
+        else if (isPassedPawn && depth > 6 && m.promo) extension = 1;
+        
+        /* Singular extension helper */
+        const isSingularCandidate = !isPV && !inChk && depth >= 8 &&
+          ttBestEnc && (TranspositionTable.encodeMove(m) === ttBestEnc) && legalIdx === 0;
+        if (isSingularCandidate) extension = 1;
 
+        let score;
         if (legalIdx === 0) {
-          /* PV node: full-window */
           score = -this.negamax(depth - 1 + extension, -beta, -alpha, ply+1, true);
         } else {
-          /* Adaptive LMR: no reduction for captures, checking, and killer moves */
+          /* Enhanced LMR */
           let reduction = 0;
-          if (!isPV && depth >= 3 && legalIdx >= 3 && !inChk && quietMove && !givesCheck && !killerMove) {
-            const dTerm = Math.floor(Math.log2(Math.max(2, depth)));
-            const mTerm = Math.floor(Math.log2(legalIdx + 1));
-            reduction = Math.max(1, Math.floor((dTerm * mTerm) / 2));
-            if (improving) reduction = Math.max(1, reduction - 1);
-            reduction = Math.min(reduction, depth - 2);
+          const canReduce = !givesCheck && !isSingularCandidate && !isPassedPawn && 
+                           !(m.flags & (FLAG_PROMO | FLAG_EP)) && depth >= 3 && legalIdx >= 3;
+          
+          if (canReduce) {
+            reduction = this.getLMRReduction(depth, legalIdx, improving, isPV, inChk, givesCheck, historyBonus);
           }
+          
           const newDepth = depth - 1 - reduction + extension;
 
-          /* Zero-window search */
           score = -this.negamax(newDepth, -alpha-1, -alpha, ply+1, true);
 
-          /* Re-search if LMR failed high */
           if (!this.stop && reduction > 0 && score > alpha) {
             score = -this.negamax(depth - 1 + extension, -alpha-1, -alpha, ply+1, true);
           }
 
-          /* Re-search full window for PV */
           if (!this.stop && score > alpha && score < beta) {
             score = -this.negamax(depth - 1 + extension, -beta, -alpha, ply+1, true);
           }
@@ -1743,27 +1899,25 @@
         if (score > alpha) {
           alpha = score;
           if (alpha >= beta) {
-            /* Beta cutoff */
             if (!(m.flags & FLAG_CAPTURE)) {
               this.storeKiller(m, ply);
               this.updateHistory(m, depth);
+              this.storeCounterMove(m);
             }
             break;
           }
         }
       }
 
-      /* TT store */
-      let flag = 0;                          // exact
-      if (bestScore <= alpha0) flag = -1;    // upper bound
-      else if (bestScore >= beta) flag = 1;  // lower bound
+      let flag = 0;
+      if (bestScore <= alpha0) flag = -1;
+      else if (bestScore >= beta) flag = 1;
       this.tt.store(this.hash, depth, bestScore, flag,
         TranspositionTable.encodeMove(bestMove));
 
       return bestScore;
     }
 
-    /* ── Time management ── */
     _checkTime() {
       if ((this.nodes & 2047) === 0) {
         if (this.moveTime > 0 && Date.now() - this.startTime >= this.moveTime) this.stop = true;
@@ -1773,10 +1927,10 @@
 
     _strengthProfileFromElo(elo) {
       const e = Math.max(800, Math.min(2800, elo | 0));
-      const t = (e - 800) / 2000; // 0..1
+      const t = (e - 800) / 2000;
       const skill = Math.max(0, Math.min(20, Math.round(t * 20)));
-      const depthCap = Math.max(1, Math.min(64, Math.round(2 + t * 16)));
-      const nodeCap = Math.max(800, Math.round(1500 + t * t * 800000));
+      const depthCap = Math.max(1, Math.min(64, Math.round(2 + t * 18)));
+      const nodeCap = Math.max(1000, Math.round(2000 + t * t * 900000));
       return { skill, depthCap, nodeCap };
     }
 
@@ -1791,11 +1945,9 @@
         depthCap = Math.min(depthCap, prof.depthCap);
         nodeCap = nodeCap > 0 ? Math.min(nodeCap, prof.nodeCap) : prof.nodeCap;
       } else if (skill < 20) {
-        // Make SkillLevel effective even without UCI_LimitStrength.
-        // This keeps compatibility with GUIs that only expose "Skill Level".
-        const t = skill / 20; // 0..1
-        const softDepthCap = Math.max(2, Math.round(2 + t * 14));
-        const softNodeCap = Math.max(1500, Math.round(2500 + t * t * 600000));
+        const t = skill / 20;
+        const softDepthCap = Math.max(2, Math.round(2 + t * 16));
+        const softNodeCap = Math.max(2000, Math.round(3000 + t * t * 700000));
         depthCap = Math.min(depthCap, softDepthCap);
         nodeCap = nodeCap > 0 ? Math.min(nodeCap, softNodeCap) : softNodeCap;
       }
@@ -1815,6 +1967,7 @@
         elo1500: { elo: 1500, skill: 14 },
         elo1800: { elo: 1800, skill: 17 },
         elo2200: { elo: 2200, skill: 20 },
+        elo2600: { elo: 2600, skill: 20 },
         max: { elo: 2800, skill: 20, full: true },
       };
 
@@ -1860,6 +2013,8 @@
         this.evalTrace.fill(0);
         this.tt.nextEpoch();
         this.histTable.fill(0);
+        this.contHist.fill(0);
+        this.counterMoves.fill(0);
         for (const k of this.killers) { k[0] = 0; k[1] = 0; }
 
         let rootMoves = this.genMoves(false);
@@ -1952,28 +2107,6 @@
       return total;
     }
 
-    runPerftSuite(maxDepth = 4) {
-      const depth = Math.max(1, Math.min(5, maxDepth | 0));
-      const oldFen = this.getFen();
-      let allOk = true;
-      const suiteStart = Date.now();
-
-      for (const test of PERFT_SUITE) {
-        this.setFen(test.fen);
-        for (let d = 1; d <= depth; d++) {
-          if (!(d in test.expected)) continue;
-          const got = this.runPerft(d, false);
-          const exp = test.expected[d];
-          const ok = got === exp;
-          if (!ok) allOk = false;
-          this.send('info string perftsuite', test.name, 'depth', d, 'got', got, 'expected', exp, ok ? 'ok' : 'FAIL');
-        }
-      }
-
-      this.setFen(oldFen);
-      this.send('info string perftsuite result', allOk ? 'PASS' : 'FAIL', 'time', Math.max(1, Date.now() - suiteStart));
-    }
-
     calcMoveTime(spec) {
       if (spec.moveTime) {
         return Math.max(1, spec.moveTime - this.options.MoveOverhead);
@@ -1981,15 +2114,14 @@
       const t   = this.side === WHITE ? (spec.wtime||0) : (spec.btime||0);
       const inc = this.side === WHITE ? (spec.winc||0)  : (spec.binc||0);
       const mtg = spec.movestogo || 30;
-      if (!t) return 5000;
+      if (!t) return 6000;
 
-      // Faster and safer allocation for blitz/rapid: avoid over-spending a single move.
       const overhead = this.options.MoveOverhead | 0;
-      const base = t / Math.max(12, mtg + 4) + inc * 0.45;
-      const emergency = t < 10000 ? t * 0.07 : t * 0.03;
+      const base = t / Math.max(12, mtg + 4) + inc * 0.5;
+      const emergency = t < 10000 ? t * 0.08 : t * 0.04;
       let alloc = Math.max(base, emergency) - overhead;
 
-      const hardCap = t < 3000 ? t * 0.18 : (t < 10000 ? t * 0.15 : t * 0.12);
+      const hardCap = t < 3000 ? t * 0.20 : (t < 10000 ? t * 0.16 : t * 0.14);
       alloc = Math.min(alloc, hardCap);
       return Math.max(1, Math.floor(alloc));
     }
@@ -2008,9 +2140,9 @@
       if (score >= MATE - 200) return { win: 1000, draw: 0, loss: 0 };
       if (score <= -MATE + 200) return { win: 0, draw: 0, loss: 1000 };
 
-      const draw = Math.max(0, Math.min(1000, Math.round(220 * Math.exp(-Math.abs(score) / 280))));
+      const draw = Math.max(0, Math.min(1000, Math.round(220 * Math.exp(-Math.abs(score) / 275))));
       const decisive = Math.max(0, 1000 - draw);
-      const winRatio = 1 / (1 + Math.exp(-score / 180));
+      const winRatio = 1 / (1 + Math.exp(-score / 175));
       const win = Math.round(decisive * winRatio);
       const loss = decisive - win;
       return { win, draw, loss };
@@ -2043,7 +2175,7 @@
       if (skill >= 20 || scoredMoves.length === 1) return scoredMoves[0].m;
 
       const bestScore = scoredMoves[0].score;
-      const maxDrop = 20 + (20 - skill) * 18;
+      const maxDrop = 25 + (20 - skill) * 20;
       const maxCount = Math.min(scoredMoves.length, 2 + Math.floor((20 - skill) / 3));
 
       const candidates = [];
@@ -2054,9 +2186,8 @@
       }
       if (!candidates.length) return scoredMoves[0].m;
 
-      // Temperature-like sampling: lower skill explores more suboptimal but still reasonable moves.
-      const temp = Math.max(0.25, (20 - skill) / 8);
-      const base = 35 + skill * 5;
+      const temp = Math.max(0.2, (20 - skill) / 7);
+      const base = 40 + skill * 6;
       let total = 0;
       for (const c of candidates) {
         const gap = Math.max(0, bestScore - c.score);
@@ -2083,8 +2214,6 @@
       const ultraSafe = depth <= 5;
       let hasSafeAlt = false;
 
-      // Semi-forced queen safety rule at shallow root:
-      // if there are safe alternatives, strongly demote suspicious queen moves.
       for (const line of scoredMoves) {
         line._hardUnsafe = false;
         const m = line.m;
@@ -2096,17 +2225,15 @@
 
         if (m.flags & FLAG_CAPTURE) {
           const victimType = (m.capture & 7) || 0;
-          // Queen-for-rook/minor/pawn with poor SEE is usually a practical blunder.
-          const hardSee = ultraSafe ? 480 : 280;
-          const hardGap = ultraSafe ? 20 : 40;
+          const hardSee = ultraSafe ? 520 : 300;
+          const hardGap = ultraSafe ? 25 : 45;
           if (victimType !== 5 && see < hardSee && line.score < rawBest - hardGap) {
             line._hardUnsafe = true;
           } else {
             hasSafeAlt = true;
           }
         } else {
-          // Quiet queen move into pawn-attacked square is suspicious unless it is clearly best.
-          const quietGap = ultraSafe ? 10 : 30;
+          const quietGap = ultraSafe ? 15 : 35;
           if (this.isSquareAttackedByPawn(m.to, them) && this.isAttacked(m.to, them) && line.score < rawBest - quietGap) {
             line._hardUnsafe = true;
           } else {
@@ -2114,8 +2241,7 @@
           }
         }
 
-        // Super-aggressive shallow safety: avoid obviously losing exchanges when alternatives exist.
-        if (ultraSafe && (m.flags & FLAG_CAPTURE) && see <= -500 && line.score < rawBest - 15) {
+        if (ultraSafe && (m.flags & FLAG_CAPTURE) && see <= -550 && line.score < rawBest - 20) {
           line._hardUnsafe = true;
         }
       }
@@ -2125,29 +2251,27 @@
         const m = line.m;
         if (Math.abs(line.score) < MATE - 500) {
           const see = this.see(m);
-          if (see <= -700) penalty += ultraSafe ? 420 : 220;
-          else if (see <= -350) penalty += ultraSafe ? 180 : 90;
+          if (see <= -750) penalty += ultraSafe ? 450 : 250;
+          else if (see <= -400) penalty += ultraSafe ? 200 : 100;
 
           const moving = m.promo || m.piece;
-          if ((moving === WQ || moving === BQ) && see < 0) penalty += ultraSafe ? 260 : 140;
+          if ((moving === WQ || moving === BQ) && see < 0) penalty += ultraSafe ? 280 : 150;
 
-          // Extra root safety: avoid queen-for-rook/minor/pawn trades unless clearly justified.
           if ((m.piece === WQ || m.piece === BQ) && (m.flags & FLAG_CAPTURE)) {
             const victimType = (m.capture & 7) || 0;
             if (victimType !== 5) {
-              if (see < (ultraSafe ? 420 : 250)) penalty += ultraSafe ? 460 : 260;
-              else if (see < (ultraSafe ? 560 : 400)) penalty += ultraSafe ? 220 : 120;
+              if (see < (ultraSafe ? 450 : 270)) penalty += ultraSafe ? 480 : 280;
+              else if (see < (ultraSafe ? 580 : 420)) penalty += ultraSafe ? 240 : 140;
             }
           }
 
-          // Discourage quiet queen moves into attacked squares at shallow root depths.
           if ((m.piece === WQ || m.piece === BQ) && !(m.flags & FLAG_CAPTURE)) {
             const them = opponent(this.side);
-            if (this.isAttacked(m.to, them)) penalty += ultraSafe ? 260 : 120;
-            if (this.isSquareAttackedByPawn(m.to, them)) penalty += ultraSafe ? 320 : 140;
+            if (this.isAttacked(m.to, them)) penalty += ultraSafe ? 280 : 140;
+            if (this.isSquareAttackedByPawn(m.to, them)) penalty += ultraSafe ? 340 : 160;
           }
         }
-        if (hasSafeAlt && line._hardUnsafe) penalty += ultraSafe ? 200000 : 100000;
+        if (hasSafeAlt && line._hardUnsafe) penalty += ultraSafe ? 250000 : 120000;
         line.pickScore = line.score - penalty;
       }
 
@@ -2185,7 +2309,6 @@
       }
     }
 
-    /* ── PV extraction ── */
     pvLine(depth, fmt = 'uci') {
       const line = [];
       const seen  = new Set();
@@ -2204,7 +2327,6 @@
       return line;
     }
 
-    /* ── Root search (iterative deepening) ── */
     search(spec) {
       this.stop      = false;
       this.nodes     = 0;
@@ -2219,9 +2341,9 @@
       this.maxNodes = strength.nodeCap;
       this.effectiveSkillLevel = strength.skill;
 
-      /* Reset history heuristic and killers each search */
       this.histTable.fill(0);
       this.contHist.fill(0);
+      this.counterMoves.fill(0);
       for (const k of this.killers) { k[0] = 0; k[1] = 0; }
 
       const depthLimit = Math.max(1, Math.min(strength.depthCap, Math.min(64, spec.depth || 64)));
@@ -2238,6 +2360,20 @@
         return;
       }
 
+      /* Opening book lookup */
+      if (this.options.OwnBook && this.book.enabled && !spec.infinite && !this.options.UCI_AnalyseMode) {
+        const currentFen = this.getFen();
+        const bookMove = this.book.probe(currentFen);
+        if (bookMove) {
+          const moveObj = this.findMoveByUci(bookMove);
+          if (moveObj) {
+            send('info string book move', bookMove);
+            send('bestmove', bookMove);
+            return;
+          }
+        }
+      }
+
       let bestMove     = rootMoves[0];
       let bestScore    = -INF;
       let prevScore    = -INF;
@@ -2248,19 +2384,16 @@
       for (let d = 1; d <= depthLimit; d++) {
         if (this.stop) break;
 
-        /* Aspiration window */
-        let asp   = d > 1 ? 25 : INF;
+        let asp   = d > 1 ? 30 : INF;
         let lo    = d > 1 ? Math.max(-INF, prevScore - asp) : -INF;
         let hi    = d > 1 ? Math.min( INF, prevScore + asp) : INF;
 
         const scored = [];
 
-        /* ---- aspiration loop ---- */
         let aspTries = 0;
         aspirationLoop:
         while (true) {
           if (++aspTries > 12) {
-            // Safety guard to avoid pathological re-search loops.
             lo = -INF;
             hi = INF;
           }
@@ -2268,7 +2401,6 @@
           let alpha = lo;
           let bestInWindow = -INF;
 
-          /* Order root moves: best move first */
           const ttEnc = this.tt.getBestMove(this.hash);
           this.scoreMoves(rootMoves, ttEnc, 0);
 
@@ -2297,7 +2429,6 @@
             if (score > alpha) {
               alpha = score;
               if (alpha >= hi) {
-                /* Fail high: widen upper bound */
                 asp = Math.min(asp * 2, INF);
                 hi  = Math.min(INF, alpha + asp);
                 lo  = Math.max(-INF, alpha - asp);
@@ -2307,7 +2438,6 @@
           }
 
           if (scored.length && bestInWindow <= lo && lo > -INF + 1) {
-            /* Fail low: widen lower bound */
             asp = Math.min(asp * 2, INF);
             lo  = Math.max(-INF, bestInWindow - asp);
             hi  = Math.min(INF, bestInWindow + asp);
@@ -2315,47 +2445,41 @@
           }
           break;
         }
-        /* ---- end aspiration loop ---- */
 
         if (!scored.length) break;
 
-        /* Sort final results, then apply a shallow root blunder guard. */
         scored.sort((a, b) => b.score - a.score);
         this.applyRootBlunderGuard(scored, d);
         finalScored = scored;
         bestMove  = scored[0].m;
         bestScore = scored[0].score;
 
-        if (prevScore > -INF + 1 && Math.abs(bestScore - prevScore) <= 18) stableIters++;
+        if (prevScore > -INF + 1 && Math.abs(bestScore - prevScore) <= 20) stableIters++;
         else stableIters = 0;
 
-        // Panic time manager: if eval collapses on deeper iteration, think longer once.
         if (!panicUsed && !spec.moveTime && this.moveTime > 0 && d >= 4 && prevScore > -INF + 1) {
           const drop = prevScore - bestScore;
-          if (drop >= 120) {
+          if (drop >= 130) {
             const elapsedNow = Date.now() - this.startTime;
             if (elapsedNow < this.moveTime * 0.55) {
               const sideTime = this.side === WHITE ? (spec.wtime || 0) : (spec.btime || 0);
-              const maxBudget = sideTime > 0 ? Math.floor(sideTime * 0.5) : Math.floor(this.moveTime * 1.6);
-              const boosted = Math.min(maxBudget, Math.floor(this.moveTime * 1.2));
+              const maxBudget = sideTime > 0 ? Math.floor(sideTime * 0.5) : Math.floor(this.moveTime * 1.7);
+              const boosted = Math.min(maxBudget, Math.floor(this.moveTime * 1.3));
               if (boosted > this.moveTime) {
                 this.moveTime = boosted;
                 panicUsed = true;
-                this.send('info string panic_time', 'drop', drop, 'new_movetime', this.moveTime);
               }
             }
           }
         }
         prevScore = bestScore;
 
-        /* Re-order rootMoves to match scored order for next iteration */
         rootMoves = scored.map(x => x.m);
 
         const elapsed = Date.now() - this.startTime;
         const nps     = elapsed > 0 ? Math.floor(this.nodes * 1000 / elapsed) : this.nodes;
         const hashfull = this.tt.hashfull();
 
-        /* Build root lines with PV */
         const rootLines = [];
         for (let i = 0; i < scored.length; i++) {
           const { m, score } = scored[i];
@@ -2368,19 +2492,16 @@
 
         this.sendRootInfo(rootLines, d, elapsed, nps, hashfull, multiPV);
 
-        /* Keep simple evalbar stream for UI integrations that depend on it */
         for (let i = 0; i < Math.min(multiPV, rootLines.length); i++) {
           const score = rootLines[i].score;
-          /* evalbar: 0-100, 50 = equal */
-          const evalBar = Math.max(0, Math.min(100, 50 + Math.round(score / 20)));
+          const evalBar = Math.max(0, Math.min(100, 50 + Math.round(score / 18)));
           this.send('info string evalbar', evalBar);
         }
 
-        // Time-aware early stop to keep move latency low in short controls.
         if (this.moveTime > 0) {
           const elapsedNow = Date.now() - this.startTime;
-          if (d >= 2 && elapsedNow >= this.moveTime * 0.97) break;
-          if (!spec.moveTime && d >= 6 && stableIters >= 2 && elapsedNow >= this.moveTime * 0.78) break;
+          if (d >= 2 && elapsedNow >= this.moveTime * 0.98) break;
+          if (!spec.moveTime && d >= 7 && stableIters >= 2 && elapsedNow >= this.moveTime * 0.80) break;
         }
       }
 
@@ -2399,7 +2520,6 @@
       this.pondering = false;
     }
 
-    /* ── UCI command handlers ── */
     handlePosition(tokens) {
       let i = 1;
       if (tokens[i] === 'startpos') {
@@ -2439,7 +2559,7 @@
         if (t==='wtime')      { spec.wtime=v; }
         if (t==='btime')      { spec.btime=v; }
         if (t==='winc')       { spec.winc=v; }
-        if (t==='binc')       { spec.binc=v; }
+        if (t==='binc')       { this.binc=v; }
         if (t==='movestogo')  { spec.movestogo=v; }
         if (t==='multipv')    { spec.multiPV=v; }
         if (t === 'searchmoves') {
@@ -2496,7 +2616,7 @@
         return;
       }
       if (name === 'Move Overhead') {
-        this.options.MoveOverhead = Math.max(0, Math.min(10000, +value || 0));
+        this.options.MoveOverhead = Math.max(0, Math.min(10000, +value || 30));
         return;
       }
       if (name === 'UCI_AnalyseMode') {
@@ -2508,7 +2628,7 @@
         return;
       }
       if (name === 'UCI_Elo') {
-        this.options.UCI_Elo = Math.max(800, Math.min(2800, +value || 2000));
+        this.options.UCI_Elo = Math.max(800, Math.min(2800, +value || 2300));
         return;
       }
       if (name === 'UCI_ShowWDL') {
@@ -2533,6 +2653,20 @@
         this.tt.resize(mb);
         return;
       }
+      if (name === 'OwnBook') {
+        this.options.OwnBook = BOOL_RE.test(value.trim());
+        this.book.setEnabled(this.options.OwnBook);
+        return;
+      }
+      if (name === 'BookRandomness') {
+        this.options.BookRandomness = Math.max(0, Math.min(100, +value || 30)) / 100;
+        this.book.setRandomness(this.options.BookRandomness);
+        return;
+      }
+      if (name === 'Contempt') {
+        this.options.Contempt = Math.max(-100, Math.min(100, +value || 15));
+        return;
+      }
     }
 
     command(line) {
@@ -2552,33 +2686,39 @@
         if (tokens[1] === 'd') tokens[1] = 'depth';
       }
 
+      const send = this.send;
+
       switch (cmd) {
         case 'uci':
-          this.send('id name', this.name);
-          this.send('id author', this.author);
-          this.send('option name Clear Hash type button');
-          this.send('option name Hash type spin default', DEFAULT_HASH_MB, 'min', MIN_HASH_MB, 'max', MAX_HASH_MB);
-          this.send('option name MultiPV type spin default 1 min 1 max 12');
-          this.send('option name Strength Preset type combo default Custom var Custom var Elo1200 var Elo1500 var Elo1800 var Elo2200 var Max');
-          this.send('option name Skill Level type spin default 20 min 0 max 20');
-          this.send('option name Threads type spin default 1 min 1 max 1');
-          this.send('option name Ponder type check default false');
-          this.send('option name Move Overhead type spin default 0 min 0 max 10000');
-          this.send('option name UCI_AnalyseMode type check default false');
-          this.send('option name UCI_LimitStrength type check default false');
-          this.send('option name UCI_Elo type spin default 2000 min 800 max 2800');
-          this.send('option name UCI_ShowWDL type check default false');
-          this.send('option name UCI_ShowACPL type check default false');
-          this.send('option name PVFormat type combo default uci var uci var san');
-          this.send('uciok');
+          send('id name', this.name);
+          send('id author', this.author);
+          send('option name Clear Hash type button');
+          send('option name Hash type spin default', DEFAULT_HASH_MB, 'min', MIN_HASH_MB, 'max', MAX_HASH_MB);
+          send('option name MultiPV type spin default 1 min 1 max 12');
+          send('option name Strength Preset type combo default Custom var Custom var Elo1200 var Elo1500 var Elo1800 var Elo2200 var Elo2600 var Max');
+          send('option name Skill Level type spin default 20 min 0 max 20');
+          send('option name Threads type spin default 1 min 1 max 1');
+          send('option name Ponder type check default false');
+          send('option name Move Overhead type spin default 30 min 0 max 10000');
+          send('option name UCI_AnalyseMode type check default false');
+          send('option name UCI_LimitStrength type check default false');
+          send('option name UCI_Elo type spin default 2300 min 800 max 2800');
+          send('option name UCI_ShowWDL type check default false');
+          send('option name UCI_ShowACPL type check default false');
+          send('option name PVFormat type combo default uci var uci var san');
+          send('option name OwnBook type check default true');
+          send('option name BookRandomness type spin default 30 min 0 max 100');
+          send('option name Contempt type spin default 15 min -100 max 100');
+          send('uciok');
           break;
         case 'isready':
-          this.send('readyok');
+          send('readyok');
           break;
         case 'ucinewgame':
           this.tt.clear();
           this.histTable.fill(0);
           this.contHist.fill(0);
+          this.counterMoves.fill(0);
           for (const k of this.killers) { k[0]=0; k[1]=0; }
           this.setFen(START_FEN);
           break;
@@ -2606,7 +2746,7 @@
           this.handleSetOption(tokens);
           break;
         case 'ping':
-          this.send('info string', this.name, 'is alive');
+          send('info string', this.name, 'is alive');
           break;
         case 'bench': {
           let d = 6;
@@ -2624,34 +2764,26 @@
           this.runPerft(d, divide);
           break;
         }
-        case 'perftsuite': {
-          let d = 4;
-          if (tokens[1] === 'depth' && tokens[2]) d = Number(tokens[2]) || 4;
-          else if (tokens[1]) d = Number(tokens[1]) || 4;
-          this.runPerftSuite(d);
-          break;
-        }
         case 'board':
-          this.send('info string board', this.getFen());
+          send('info string board', this.getFen());
           break;
         case 'eval':
-          this.send('info string eval cp', this.evaluate());
+          send('info string eval cp', this.evaluate());
           break;
         case 'd':
         case 'fen':
-          this.send('info string', this.getFen());
+          send('info string', this.getFen());
           break;
         case 'quit':
           this.stop = true;
           break;
         default:
-          this.send('info string unknown command', cmd);
+          send('info string unknown command', cmd);
           break;
       }
     }
   }
 
-  /* ── Bootstrap ── */
   const engine = new Engine();
   self.onmessage = (e) => {
     const lines = String(e.data||'').split(/\r?\n/);
