@@ -1677,14 +1677,14 @@
         const killerMove = quietMove && this.isKillerMove(m, ply);
 
         /* Late move pruning for quiet moves in low depth */
-        if (!isPV && !inChk && quietMove && depth <= 3) {
-          const limit = depth === 1 ? 6 : (depth === 2 ? 10 : 16);
+        if (!isPV && !inChk && quietMove && depth <= 4) {
+          const limit = depth === 1 ? 5 : (depth === 2 ? 8 : (depth === 3 ? 12 : 18));
           if (moveTried >= limit) continue;
         }
 
         /* Node futility pruning for quiet moves */
-        if (!isPV && !inChk && quietMove && depth <= 2) {
-          const futMargin = 120 * depth;
+        if (!isPV && !inChk && quietMove && depth <= 3) {
+          const futMargin = 140 * depth;
           if (staticEval + futMargin <= alpha) {
             continue;
           }
@@ -1765,7 +1765,7 @@
 
     /* ── Time management ── */
     _checkTime() {
-      if ((this.nodes & 1023) === 0) {
+      if ((this.nodes & 2047) === 0) {
         if (this.moveTime > 0 && Date.now() - this.startTime >= this.moveTime) this.stop = true;
         if (this.maxNodes > 0 && this.nodes >= this.maxNodes) this.stop = true;
       }
@@ -1983,13 +1983,13 @@
       const mtg = spec.movestogo || 30;
       if (!t) return 5000;
 
-      // Stable time allocation with emergency floor and hard upper cap.
+      // Faster and safer allocation for blitz/rapid: avoid over-spending a single move.
       const overhead = this.options.MoveOverhead | 0;
-      const base = t / Math.max(10, mtg + 2) + inc * 0.6;
-      const emergency = t < 10000 ? t * 0.08 : t * 0.035;
+      const base = t / Math.max(12, mtg + 4) + inc * 0.45;
+      const emergency = t < 10000 ? t * 0.07 : t * 0.03;
       let alloc = Math.max(base, emergency) - overhead;
 
-      const hardCap = t < 3000 ? t * 0.25 : t * 0.45;
+      const hardCap = t < 3000 ? t * 0.18 : (t < 10000 ? t * 0.15 : t * 0.12);
       alloc = Math.min(alloc, hardCap);
       return Math.max(1, Math.floor(alloc));
     }
@@ -2243,6 +2243,7 @@
       let prevScore    = -INF;
       let finalScored  = null;
       let panicUsed    = false;
+      let stableIters  = 0;
 
       for (let d = 1; d <= depthLimit; d++) {
         if (this.stop) break;
@@ -2325,15 +2326,18 @@
         bestMove  = scored[0].m;
         bestScore = scored[0].score;
 
+        if (prevScore > -INF + 1 && Math.abs(bestScore - prevScore) <= 18) stableIters++;
+        else stableIters = 0;
+
         // Panic time manager: if eval collapses on deeper iteration, think longer once.
         if (!panicUsed && !spec.moveTime && this.moveTime > 0 && d >= 4 && prevScore > -INF + 1) {
           const drop = prevScore - bestScore;
-          if (drop >= 80) {
+          if (drop >= 120) {
             const elapsedNow = Date.now() - this.startTime;
-            if (elapsedNow < this.moveTime * 0.7) {
+            if (elapsedNow < this.moveTime * 0.55) {
               const sideTime = this.side === WHITE ? (spec.wtime || 0) : (spec.btime || 0);
-              const maxBudget = sideTime > 0 ? Math.floor(sideTime * 0.8) : Math.floor(this.moveTime * 2);
-              const boosted = Math.min(maxBudget, Math.floor(this.moveTime * 1.35));
+              const maxBudget = sideTime > 0 ? Math.floor(sideTime * 0.5) : Math.floor(this.moveTime * 1.6);
+              const boosted = Math.min(maxBudget, Math.floor(this.moveTime * 1.2));
               if (boosted > this.moveTime) {
                 this.moveTime = boosted;
                 panicUsed = true;
@@ -2370,6 +2374,13 @@
           /* evalbar: 0-100, 50 = equal */
           const evalBar = Math.max(0, Math.min(100, 50 + Math.round(score / 20)));
           this.send('info string evalbar', evalBar);
+        }
+
+        // Time-aware early stop to keep move latency low in short controls.
+        if (this.moveTime > 0) {
+          const elapsedNow = Date.now() - this.startTime;
+          if (d >= 2 && elapsedNow >= this.moveTime * 0.97) break;
+          if (!spec.moveTime && d >= 6 && stableIters >= 2 && elapsedNow >= this.moveTime * 0.78) break;
         }
       }
 
